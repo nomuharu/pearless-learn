@@ -166,7 +166,17 @@ def saved_scaler_path(tmp_path):
     StandardScalerを(100, 60, 16)の合成データでfitし、
     tmp_path/scaler.pklとして保存してパスを返す。
     """
-    pass
+    import pickle
+    from sklearn.preprocessing import StandardScaler
+
+    rng = np.random.default_rng(seed=42)
+    X_train = rng.random((100, 60, 16)).astype(np.float32)
+    scaler = StandardScaler()
+    scaler.fit(X_train.reshape(-1, 16))
+    scaler_path = tmp_path / "scaler.pkl"
+    with open(scaler_path, "wb") as f:
+        pickle.dump(scaler, f)
+    return scaler_path
 
 
 @pytest.fixture
@@ -197,7 +207,16 @@ def stub_model():
     forward(x) は常に (batch, 3) のsoftmax済みTensorを返す。
     実装時: torch.tensor([[0.7, 0.2, 0.1]]) を返す最小モデル。
     """
-    pass
+    import torch
+    import torch.nn as nn
+
+    class StubModel(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            batch_size = x.shape[0]
+            probs = torch.tensor([[0.7, 0.2, 0.1]]).repeat(batch_size, 1)
+            return probs
+
+    return StubModel()
 
 
 @pytest.fixture
@@ -208,4 +227,6 @@ def minimal_patchtst_model():
     CPUデバイスで推論。
     @real-dependency: pytorch
     """
-    pass
+    # Phase 2 Task 2-2 で PatchTST が実装されるまで pass のままにする
+    # pytest.skip を使って Red 状態を保つ
+    pytest.skip("PatchTST 未実装（Task 2-2 で実装予定）")
