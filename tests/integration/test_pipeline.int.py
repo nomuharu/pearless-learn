@@ -422,6 +422,28 @@ def test_feature_engineering_time_sin_cos_encoding():
 
 
 # ============================================================
+# SHA-256 冪等性テスト
+# Behavior: 同一CSV入力から同一numpy配列が生成される（SHA-256一致）
+# @category: core-functionality
+# @dependency: pipeline.run_pipeline, hashlib, filesystem
+# ============================================================
+def test_pipeline_is_idempotent_sha256(synthetic_ohlcv_csv, tmp_path):
+    """同一 CSV 入力から同一 numpy 配列が生成される（SHA-256 一致）。"""
+    import hashlib
+
+    output_dir_1 = tmp_path / "run1"
+    output_dir_2 = tmp_path / "run2"
+    output_dir_1.mkdir()
+    output_dir_2.mkdir()
+    run_pipeline(str(synthetic_ohlcv_csv), str(output_dir_1))
+    run_pipeline(str(synthetic_ohlcv_csv), str(output_dir_2))
+    for fname in ["X_train.npy", "y_train.npy"]:
+        h1 = hashlib.sha256((output_dir_1 / fname).read_bytes()).hexdigest()
+        h2 = hashlib.sha256((output_dir_2 / fname).read_bytes()).hexdigest()
+        assert h1 == h2, f"{fname} のハッシュが一致しない"
+
+
+# ============================================================
 # Fixtures
 # ============================================================
 
