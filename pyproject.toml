@@ -38,6 +38,7 @@ addopts = "--import-mode=importlib"
 [dependency-groups]
 dev = [
     "mypy>=1.20.2",
+    "pandas-stubs>=3.0.0.260204",
     "pytest>=9.0.3",
     "ruff>=0.15.11",
 ]
