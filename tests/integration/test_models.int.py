@@ -4,6 +4,7 @@
 import torch
 
 from models.base import BaseModel
+from models.cnn import CNNModel
 from models.itransformer import iTransformer
 from models.patchtst import PatchTST
 
@@ -222,7 +223,7 @@ def test_all_models_implement_base_model_interface():
     input (B,60,16) → output (B,3) の契約を満たすこと
 
     Arrange:
-      - PatchTST / iTransformer をそれぞれインスタンス化
+      - PatchTST / iTransformer / CNNModel をそれぞれインスタンス化
       - x = torch.zeros(2, 60, 16)
     Act:
       - output = model.forward(x)
@@ -234,7 +235,7 @@ def test_all_models_implement_base_model_interface():
     """
     x = torch.zeros(2, 60, 16)
 
-    for model_instance in [PatchTST(), iTransformer()]:
+    for model_instance in [PatchTST(), iTransformer(), CNNModel()]:
         model_instance.eval()
         with torch.no_grad():
             output = model_instance.forward(x)
@@ -245,3 +246,103 @@ def test_all_models_implement_base_model_interface():
         assert output.shape == (2, 3), (
             f"{type(model_instance).__name__}: Expected (2, 3), got {output.shape}"
         )
+
+
+# ============================================================
+# AC-021: CNNModel forward shape + softmax + パラメータ数
+# AC: AC-021
+# Behavior: CNNModel.forward(x) に (B, 60, 16) を入力 →
+#           (B, 3) softmax確率を返す
+# @category: core-functionality
+# @dependency: models.cnn.CNNModel, pytorch
+# @real-dependency: pytorch
+# @complexity: low
+# ============================================================
+def test_cnn_model_forward_output_shape_and_softmax():
+    """
+    AC-021: CNNModelがinput (B,60,16) → output (B,3) softmax確率を返すこと
+
+    Arrange:
+      - CNNModel(seq_len=60, n_features=16, n_classes=3) をインスタンス化
+      - x = torch.randn(4, 60, 16)
+    Act:
+      - model.eval() に設定
+      - output = model.forward(x)
+    Assert:
+      - output.shape == (4, 3)
+      - output.sum(dim=1) ≈ 1.0 (softmax確認, 許容誤差1e-4)
+      - output.min() >= 0.0 (確率は非負)
+    Pass criteria:
+      - shape (4,3) + softmax合計≈1.0 → Pass
+    """
+    # Arrange
+    model = CNNModel(seq_len=60, n_features=16, n_classes=3)
+    model.eval()
+    x = torch.randn(4, 60, 16)
+
+    # Act
+    with torch.no_grad():
+        output = model.forward(x)
+
+    # Assert
+    assert output.shape == (4, 3), f"Expected (4, 3), got {output.shape}"
+    assert torch.allclose(output.sum(dim=1), torch.ones(4), atol=1e-4), (
+        f"softmax合計が1.0でない: {output.sum(dim=1)}"
+    )
+    assert output.min() >= 0.0, f"確率が負の値: {output.min()}"
+
+
+# AC: AC-021
+# Behavior: CNNModel インスタンス化 → パラメータ数集計 → 10M以下を確認
+# @category: core-functionality
+# @dependency: models/cnn.py
+# @complexity: low
+# ROI: high
+def test_cnn_model_parameter_count_under_10_million():
+    """
+    品質保証メカニズム: CNNModelのパラメータ数が10M以下であること（CPU推論コスト制約）
+
+    Arrange:
+      - CNNModel をデフォルトハイパーパラメータでインスタンス化
+    Act:
+      - total_params = sum(p.numel() for p in model.parameters())
+    Assert:
+      - total_params <= 10_000_000
+    Pass criteria:
+      - パラメータ数 ≤ 10M → Pass
+    """
+    # Arrange
+    model = CNNModel()
+
+    # Act
+    total_params = sum(p.numel() for p in model.parameters())
+
+    # Assert
+    assert total_params <= 10_000_000, f"パラメータ数 {total_params:,} が 10M を超過"
+
+
+# AC: AC-021
+# Behavior: CNNModel インスタンス化 → パラメータ数集計 → 10M以下を確認
+# @category: core-functionality
+# @dependency: models/cnn.py
+# @complexity: low
+# ROI: high
+def test_cnn_model_is_base_model_instance():
+    """
+    BaseModelインターフェース契約: CNNModelがBaseModelのインスタンスであること
+
+    Arrange:
+      - CNNModel をインスタンス化
+    Act:
+      - isinstance(model, BaseModel) を確認
+    Assert:
+      - isinstance(model, BaseModel) == True
+    """
+    # Arrange
+    model = CNNModel()
+
+    # Act
+    result = isinstance(model, BaseModel)
+
+    # Assert
+    assert result, "CNNModel が BaseModel のインスタンスでない"
