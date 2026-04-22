@@ -1,7 +1,11 @@
 # モデルアーキテクチャ Integration Test - Design Doc: fx-prediction-design.md
 # Generated: 2026-04-21 | Budget Used: 3/3 integration
 
-import pytest
+import torch
+
+from models.base import BaseModel
+from models.itransformer import iTransformer
+from models.patchtst import PatchTST
 
 
 # ============================================================
@@ -39,7 +43,35 @@ def test_patchtst_forward_output_shape_and_softmax():
       - output.sum(dim=-1).allclose(torch.ones(4), atol=1e-4)
       - RevINモジュールの存在確認
     """
-    pass
+    # Arrange
+    model = PatchTST(
+        seq_len=60,
+        n_features=16,
+        patch_len=6,
+        stride=6,
+        d_model=128,
+        n_heads=8,
+        n_layers=3,
+        dim_ff=256,
+        dropout=0.0,
+        n_classes=3,
+    )
+    model.eval()
+    x = torch.randn(4, 60, 16)
+
+    # Act
+    with torch.no_grad():
+        output = model.forward(x)
+
+    # Assert
+    assert output.shape == (4, 3), f"Expected (4, 3), got {output.shape}"
+    assert torch.allclose(output.sum(dim=1), torch.ones(4), atol=1e-4), (
+        f"softmax合計が1.0でない: {output.sum(dim=1)}"
+    )
+    assert output.min() >= 0.0, f"確率が負の値: {output.min()}"
+    assert any("revin" in name for name, _ in model.named_modules()), (
+        "RevINモジュールが存在しない（AC-010違反）"
+    )
 
 
 def test_patchtst_parameter_count_under_10_million():
@@ -55,7 +87,14 @@ def test_patchtst_parameter_count_under_10_million():
     Pass criteria:
       - パラメータ数 ≤ 10M → Pass
     """
-    pass
+    # Arrange
+    model = PatchTST()
+
+    # Act
+    total_params = sum(p.numel() for p in model.parameters())
+
+    # Assert
+    assert total_params <= 10_000_000, f"パラメータ数 {total_params:,} が 10M を超過"
 
 
 # ============================================================
@@ -94,7 +133,30 @@ def test_itransformer_forward_output_shape_and_transpose():
 
     注記: iTransformerにRevINは適用しない（ADR-0001 Implementation Guidance準拠）。
     """
-    pass
+    # Arrange
+    model = iTransformer(
+        seq_len=60,
+        n_features=16,
+        d_model=128,
+        n_heads=8,
+        n_layers=3,
+        dim_ff=256,
+        dropout=0.0,
+        n_classes=3,
+    )
+    model.eval()
+    x = torch.randn(4, 60, 16)
+
+    # Act
+    with torch.no_grad():
+        output = model.forward(x)
+
+    # Assert
+    assert output.shape == (4, 3), f"Expected (4, 3), got {output.shape}"
+    assert torch.allclose(output.sum(dim=1), torch.ones(4), atol=1e-4), (
+        f"softmax合計が1.0でない: {output.sum(dim=1)}"
+    )
+    assert output.min() >= 0.0, f"確率が負の値: {output.min()}"
 
 
 def test_itransformer_has_no_revin_module():
@@ -110,7 +172,39 @@ def test_itransformer_has_no_revin_module():
     Pass criteria:
       - RevIN非存在 → Pass（意図的な設計であることの確認）
     """
-    pass
+    # Arrange
+    model = iTransformer()
+
+    # Act
+    module_names = [name for name, _ in model.named_modules()]
+
+    # Assert
+    assert not any("revin" in name for name in module_names), (
+        f"RevINが存在する（ADR-0001違反）: {[n for n in module_names if 'revin' in n]}"
+    )
+
+
+def test_itransformer_parameter_count_under_10_million():
+    """
+    品質保証メカニズム: iTransformerのパラメータ数が10M以下であること（CPU推論コスト制約）
+
+    Arrange:
+      - iTransformer をデフォルトハイパーパラメータでインスタンス化
+    Act:
+      - total_params = sum(p.numel() for p in model.parameters())
+    Assert:
+      - total_params <= 10_000_000
+    Pass criteria:
+      - パラメータ数 ≤ 10M → Pass
+    """
+    # Arrange
+    model = iTransformer()
+
+    # Act
+    total_params = sum(p.numel() for p in model.parameters())
+
+    # Assert
+    assert total_params <= 10_000_000, f"パラメータ数 {total_params:,} が 10M を超過"
 
 
 # ============================================================
@@ -122,10 +216,7 @@ def test_itransformer_has_no_revin_module():
 # @real-dependency: pytorch
 # @complexity: low
 # ============================================================
-@pytest.mark.parametrize(
-    "model_class_fixture", ["patchtst_model", "itransformer_model"]
-)
-def test_all_models_implement_base_model_interface(model_class_fixture, request):
+def test_all_models_implement_base_model_interface():
     """
     BaseModelインターフェース契約: 全モデルが forward(x: Tensor) -> Tensor を実装し、
     input (B,60,16) → output (B,3) の契約を満たすこと
@@ -141,4 +232,16 @@ def test_all_models_implement_base_model_interface(model_class_fixture, request)
     Pass criteria:
       - 全モデルが同一の shape 契約を満たす → Pass
     """
-    pass
+    x = torch.zeros(2, 60, 16)
+
+    for model_instance in [PatchTST(), iTransformer()]:
+        model_instance.eval()
+        with torch.no_grad():
+            output = model_instance.forward(x)
+
+        assert isinstance(model_instance, BaseModel), (
+            f"{type(model_instance).__name__} が BaseModel のインスタンスでない"
+        )
+        assert output.shape == (2, 3), (
+            f"{type(model_instance).__name__}: Expected (2, 3), got {output.shape}"
+        )
