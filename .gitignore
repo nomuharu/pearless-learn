@@ -1,0 +1,23 @@
+# データファイル (OHLCV CSV・npy ファイル)
+data/
+
+# 学習ログ CSV
+logs/
+
+# Kaggle API トークン / 環境変数ファイル
+.env
+
+# モデルファイル
+*.pkl
+*.pt
+
+# Python キャッシュ
+__pycache__/
+*.pyc
+*.pyo
+
+# 仮想環境
+.venv/
+
+# uv.lock はチーム開発では含める、個人開発では除外可
+# uv.lock

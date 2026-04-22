@@ -1,0 +1,43 @@
+[project]
+name = "pearless"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.2.0",
+    "pandas>=2.2.0",
+    "ta>=0.11.0",  # 外部ライブラリ; 将来的にnumpy自前実装に置き換え可能
+    "numpy>=1.26.0",
+    "scikit-learn>=1.4.0",
+    "kaggle>=1.6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", marker = "platform_machine != 'GPU'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 88
+
+[tool.mypy]
+python_version = "3.12"
+disallow_any_generics = true
+warn_return_any = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "test_*.int.py", "test_*.e2e.py"]
+addopts = "--import-mode=importlib"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.2",
+    "pytest>=9.0.3",
+    "ruff>=0.15.11",
+]
