@@ -6,6 +6,12 @@ import numpy as np
 import pandas as pd
 from unittest.mock import MagicMock
 
+from inference.engine import InferenceEngine
+from inference.interface import DataSourceInterface
+from inference.pipe_stub import NamedPipeStub
+
+_VALID_SIGNALS = {"UP", "DOWN", "NEUTRAL"}
+
 
 # ============================================================
 # AC-018: 推論シグナル + 確率出力
@@ -24,7 +30,7 @@ def test_inference_engine_returns_signal_and_three_probabilities(
     AC-018: InferenceEngine.predict()がシグナルと確率3値を返すこと
 
     Arrange:
-      - DataSourceInterface をモック: fetch_latest_ohlcv() が (60, 5) DataFrame を返す
+      - DataSourceInterface をモック: fetch_latest_ohlcv() が (120, 6) DataFrame を返す
       - BaseModel をモック（または最小構成の実モデル）:
         forward(x) が (1, 3) softmax済みTensorを返す
         例: torch.tensor([[0.7, 0.2, 0.1]])
@@ -46,7 +52,14 @@ def test_inference_engine_returns_signal_and_three_probabilities(
       - probabilities の合計 ≈ 1.0
       - inference_ms は float (非負)
     """
-    pass
+    engine = InferenceEngine(stub_model, saved_scaler_path, mock_data_source)
+
+    result = engine.predict()
+
+    assert result["signal"] in _VALID_SIGNALS
+    assert set(result["probabilities"].keys()) == _VALID_SIGNALS
+    assert abs(sum(result["probabilities"].values()) - 1.0) < 1e-4
+    assert isinstance(result["inference_ms"], float)
 
 
 # ============================================================
@@ -58,14 +71,15 @@ def test_inference_engine_returns_signal_and_three_probabilities(
 # @real-dependency: pytorch (CPU)
 # @complexity: high
 # ============================================================
+@pytest.mark.skip(reason="PatchTST実装後（Task 2-2完了後）に有効化")
 def test_inference_engine_completes_within_50ms_average_over_100_runs(
-    mock_data_source, minimal_patchtst_model, saved_scaler_path
+    mock_data_source, saved_scaler_path
 ):
     """
     AC-017: 100回連続推論の平均時間が50ms未満であること（WSL2 CPU環境）
 
     Arrange:
-      - DataSourceInterface モック: (60, 5) DataFrame を返す
+      - DataSourceInterface モック: (120, 6) DataFrame を返す
       - パラメータ数が10M以下のPatchTSTまたはiTransformerの最小構成（または実モデル）
         を CPU デバイスで初期化
       - InferenceEngine を構築
@@ -82,6 +96,8 @@ def test_inference_engine_completes_within_50ms_average_over_100_runs(
       - 100回の全推論でエラーなし
       - avg_ms < 50.0
     """
+    # PatchTST 実装後にモデルを差し替える
+    # minimal_patchtst_model を引数に追加し、stub_model → minimal_patchtst_model へ変更
     pass
 
 
@@ -95,14 +111,14 @@ def test_inference_engine_completes_within_50ms_average_over_100_runs(
 # @complexity: medium
 # ============================================================
 def test_stub_100_consecutive_predictions_produce_no_errors(
-    minimal_patchtst_model, saved_scaler_path
+    stub_model, saved_scaler_path
 ):
     """
     AC-019: NamedPipeStubを使用した100回連続推論でエラーが0件であること
 
     Arrange:
       - NamedPipeStub() をインスタンス化
-      - InferenceEngine(model=minimal_patchtst_model,
+      - InferenceEngine(model=stub_model,
                         scaler_path=saved_scaler_path,
                         data_source=NamedPipeStub()) を構築
     Act:
@@ -118,7 +134,23 @@ def test_stub_100_consecutive_predictions_produce_no_errors(
       - len(results) == 100
       - すべての result["signal"] が有効値
     """
-    pass
+    engine = InferenceEngine(stub_model, saved_scaler_path, NamedPipeStub())
+
+    errors: list[Exception] = []
+    results: list[dict] = []
+
+    for _ in range(100):
+        try:
+            result = engine.predict()
+            results.append(result)
+        except Exception as exc:
+            errors.append(exc)
+
+    assert errors == [], (
+        f"推論中に {len(errors)} 件のエラーが発生しました: {errors[:3]}"
+    )
+    assert len(results) == 100
+    assert all(r["signal"] in _VALID_SIGNALS for r in results)
 
 
 # ============================================================
@@ -139,7 +171,7 @@ def test_inference_engine_accepts_any_data_source_interface_subclass(
 
     Arrange:
       - DataSourceInterface を継承した CustomDataSource クラスを定義
-        (fetch_latest_ohlcv が合成(60,5) DataFrameを返す)
+        (fetch_latest_ohlcv が合成(120, 6) DataFrameを返す)
     Act:
       - engine_a = InferenceEngine(stub_model, saved_scaler_path, NamedPipeStub())
         result_a = engine_a.predict()
@@ -152,7 +184,35 @@ def test_inference_engine_accepts_any_data_source_interface_subclass(
     Pass criteria:
       - 2つの異なるDataSource実装が同じインターフェースで動作 → Pass
     """
-    pass
+
+    class CustomDataSource(DataSourceInterface):
+        """テスト専用の DataSourceInterface 実装。"""
+
+        def fetch_latest_ohlcv(self, n_bars: int = 60) -> pd.DataFrame:
+            rng = np.random.default_rng(seed=99)
+            close = 120.0 + rng.normal(0, 0.3, n_bars).cumsum()
+            spread = rng.uniform(0.0, 0.2, n_bars)
+            return pd.DataFrame(
+                {
+                    "datetime": pd.date_range(
+                        "2024-06-01", periods=n_bars, freq="5min"
+                    ),
+                    "open": close + rng.uniform(-0.1, 0.1, n_bars),
+                    "high": close + spread,
+                    "low": close - spread,
+                    "close": close,
+                    "volume": rng.integers(200, 800, n_bars).astype(float),
+                }
+            )
+
+    engine_a = InferenceEngine(stub_model, saved_scaler_path, NamedPipeStub())
+    result_a = engine_a.predict()
+
+    engine_b = InferenceEngine(stub_model, saved_scaler_path, CustomDataSource())
+    result_b = engine_b.predict()
+
+    assert result_a["signal"] in _VALID_SIGNALS
+    assert result_b["signal"] in _VALID_SIGNALS
 
 
 # ============================================================
@@ -183,16 +243,19 @@ def saved_scaler_path(tmp_path):
 def mock_data_source():
     """
     DataSourceInterface をモック。
-    fetch_latest_ohlcv() は (60, 5) の合成OHLCVデータを返す。
+    fetch_latest_ohlcv() は (120, 6) の合成OHLCVデータ（datetime列付き）を返す。
+    engine.py は SEQ_LEN(60) + WARMUP(60) = 120 行を要求する。
     """
+    n_bars = 120
     rng = np.random.default_rng(seed=42)
     ohlcv_data = pd.DataFrame(
         {
-            "open": 150.0 + rng.normal(0, 0.1, 60),
-            "high": 150.3 + rng.normal(0, 0.1, 60),
-            "low": 149.7 + rng.normal(0, 0.1, 60),
-            "close": 150.0 + rng.normal(0, 0.1, 60),
-            "volume": rng.integers(100, 1000, 60).astype(float),
+            "datetime": pd.date_range("2024-01-01", periods=n_bars, freq="5min"),
+            "open": 150.0 + rng.normal(0, 0.1, n_bars),
+            "high": 150.3 + rng.normal(0, 0.1, n_bars),
+            "low": 149.7 + rng.normal(0, 0.1, n_bars),
+            "close": 150.0 + rng.normal(0, 0.1, n_bars),
+            "volume": rng.integers(100, 1000, n_bars).astype(float),
         }
     )
     source = MagicMock()
