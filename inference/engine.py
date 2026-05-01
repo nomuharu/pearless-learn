@@ -11,6 +11,7 @@ from __future__ import annotations
 import pickle
 import time
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 import torch
@@ -21,6 +22,14 @@ from pipeline import feature_engineering
 
 # クラスマッピング: UP=0, DOWN=1, NEUTRAL=2 (Design Doc § Glossary)
 _SIGNAL_MAP: dict[int, str] = {0: "UP", 1: "DOWN", 2: "NEUTRAL"}
+
+
+class PredictResult(TypedDict):
+    """predict() 戻り値の型定義。"""
+
+    signal: str
+    probabilities: dict[str, float]
+    inference_ms: float
 
 # feature_engineering の NaN ウォームアップ行数（MA60 = 59 行 + 安全マージン）
 _WARMUP_BARS: int = 60
@@ -58,7 +67,7 @@ class InferenceEngine:
             self._scaler = pickle.load(f)
         self._model.eval()
 
-    def predict(self) -> dict[str, object]:
+    def predict(self) -> PredictResult:
         """推論を実行しシグナルと確率を返す。
 
         feature_engineering の NaN ウォームアップのため、
