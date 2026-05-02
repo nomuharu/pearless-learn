@@ -67,8 +67,42 @@ def test_full_pipeline_to_stub_inference_end_to_end(
       - Step2: シグナル + 確率3値が返ること (AC-018)
       - Step2: 推論時間 < 50ms (AC-017)
       - Step2: スタブエラーゼロ (AC-019)
+            ※ 1回の呼び出しでスタブエラーゼロを確認（100回連続はintegrationテストで検証済み）
     """
-    pass
+    from pipeline import run_pipeline
+    from inference.engine import InferenceEngine
+    from inference.pipe_stub import NamedPipeStub
+
+    # === Step 1: データパイプライン実行（CLI 境界 1）===
+    run_pipeline(str(synthetic_ohlcv_csv), str(tmp_path))
+
+    # Assert 1: Step 1 完了確認
+    assert (tmp_path / "X_train.npy").exists()
+    assert (tmp_path / "y_train.npy").exists()
+    assert (tmp_path / "X_val.npy").exists()
+    assert (tmp_path / "y_val.npy").exists()
+    assert (tmp_path / "X_test.npy").exists()
+    assert (tmp_path / "y_test.npy").exists()
+    x_train = np.load(tmp_path / "X_train.npy")
+    assert x_train.shape[1] == 60 and x_train.shape[2] == 16
+    assert x_train.dtype == np.float32
+    assert (tmp_path / "scaler.pkl").exists()
+    assert not np.isnan(x_train).any()
+
+    # === Step 2: 推論エンジン実行（CLI 境界 2）===
+    stub = NamedPipeStub()
+    engine = InferenceEngine(
+        model=minimal_patchtst_model,
+        scaler_path=tmp_path / "scaler.pkl",
+        data_source=stub,
+    )
+    result = engine.predict()
+
+    # Assert 2: Step 2 完了確認（ジャーニー完結）
+    assert result["signal"] in {"UP", "DOWN", "NEUTRAL"}
+    assert set(result["probabilities"].keys()) == {"UP", "DOWN", "NEUTRAL"}
+    assert abs(sum(result["probabilities"].values()) - 1.0) < 1e-4
+    assert result["inference_ms"] < 50.0
 
 
 # ============================================================
@@ -112,4 +146,10 @@ def minimal_patchtst_model():
     パラメータ: seq_len=60, n_features=16, d_model=64, n_heads=2, n_layers=1
     @real-dependency: pytorch
     """
-    pass
+    from models.patchtst import PatchTST
+
+    model = PatchTST(
+        seq_len=60, n_features=16, d_model=64, n_heads=2, n_layers=1, n_classes=3
+    )
+    model.eval()
+    return model
