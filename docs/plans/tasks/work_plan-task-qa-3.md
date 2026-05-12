@@ -97,6 +97,6 @@ echo "全品質チェック完了"
 
 ## 完了条件
 
-- [ ] Implementation: 静的解析エラーが全てゼロ
-- [ ] Quality: カバレッジ 70% 以上、全テスト pass
-- [ ] Integration: `uv sync` による環境再現性確認 (AC-024)、`uv export` で Kaggle 向け requirements.txt 生成 (AC-025)
+- [x] Implementation: 静的解析エラーが全てゼロ
+- [x] Quality: カバレッジ 70% 以上（83.71%）、全テスト pass（61 passed, 1 skipped）
+- [x] Integration: `uv sync` による環境再現性確認 (AC-024)、`uv export` で Kaggle 向け requirements.txt 生成 (AC-025、677行)

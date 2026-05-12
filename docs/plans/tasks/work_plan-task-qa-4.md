@@ -43,10 +43,10 @@
 
 ### Step 3: PRD 定性的成功基準の確認
 
-- [ ] コードコメントに設計書との対応関係が明示されている
-- [ ] 使用手順が README に記載されている
-- [ ] wandb が一切含まれていない
-- [ ] Kaggle API トークンがコードにハードコードされていない
+- [x] コードコメントに設計書との対応関係が明示されている
+- [x] 使用手順が README に記載されている
+- [x] wandb が一切含まれていない
+- [x] Kaggle API トークンがコードにハードコードされていない
 
 ## 動作確認方法
 
@@ -71,6 +71,6 @@ grep -r "KAGGLE_KEY\s*=" --include="*.py" . | grep -v "os.environ\|getenv"
 
 ## 完了条件
 
-- [ ] Implementation: README.md に使用手順が記載されている
-- [ ] Quality: コードコメントに設計書との対応関係が明示されている
-- [ ] Integration: PRD 定性的成功基準の確認が完了している
+- [x] Implementation: README.md に使用手順が記載されている
+- [x] Quality: コードコメントに設計書との対応関係が明示されている
+- [x] Integration: PRD 定性的成功基準の確認が完了している

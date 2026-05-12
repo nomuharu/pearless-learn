@@ -31,6 +31,7 @@ class PredictResult(TypedDict):
     probabilities: dict[str, float]
     inference_ms: float
 
+
 # feature_engineering の NaN ウォームアップ行数（MA60 = 59 行 + 安全マージン）
 _WARMUP_BARS: int = 60
 

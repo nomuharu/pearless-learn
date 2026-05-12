@@ -1,4 +1,5 @@
 """pytest 設定: ルートディレクトリを sys.path に追加してモジュールインポートを解決する。"""
+
 import sys
 from pathlib import Path
 
