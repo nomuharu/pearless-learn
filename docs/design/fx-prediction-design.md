@@ -298,7 +298,7 @@ No Ripple Effect:
 |---|---|---|---|
 | なし（新規） | `BaseModel.forward(x: Tensor) -> Tensor` | N/A | — |
 | なし（新規） | `DataSourceInterface.fetch_latest_ohlcv() -> pd.DataFrame` | N/A | — |
-| なし（新規） | `pipeline.run(csv_path: str, output_dir: str) -> None` | N/A | — |
+| なし（新規） | `pipeline.run_pipeline(csv_path: str, output_dir: str) -> None` | N/A | — |
 
 ---
 

@@ -14,8 +14,8 @@ class DataSourceInterface(ABC):
 
     契約:
         fetch_latest_ohlcv(n_bars) が呼ばれると、直近 n_bars 本の OHLCV DataFrame を返す。
-        返り値の列名: ["open", "high", "low", "close", "volume"]
-        返り値の shape: (n_bars, 5)
+        返り値の列名: ["datetime", "open", "high", "low", "close", "volume"]
+        返り値の shape: (n_bars, 6)
     """
 
     @abstractmethod
@@ -26,6 +26,6 @@ class DataSourceInterface(ABC):
             n_bars: 取得するバー数。デフォルト 60（推論ウィンドウサイズと一致）。
 
         Returns:
-            shape (n_bars, 5) の DataFrame。列: open, high, low, close, volume。
+            shape (n_bars, 6) の DataFrame。列: datetime, open, high, low, close, volume。
         """
         ...
