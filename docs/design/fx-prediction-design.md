@@ -22,7 +22,7 @@ main_constraints:
   - "PyTorch: ローカルは CPU 版、Kaggle は GPU 版（同一コードで device 切り替え）"
   - "依存管理: uv + pyproject.toml で WSL2/Kaggle 完全再現"
   - "実験管理: wandb 禁止、CSV ログのみ"
-  - "指標ライブラリ: pandas-ta のみ（TA-Lib 禁止）"
+  - "指標ライブラリ: ta ライブラリ（ta>=0.11.0）を使用。pandas-ta は llvmlite/numba 依存によりビルド失敗のため ta に変更（ユーザー承認済み）。TA-Lib 禁止は継続"
   - "パラメータ上限: 10M 以下（CPU 推論 50ms 制約）"
   - "学習環境: Kaggle T4 GPU、週 30 時間制限"
 biggest_risks:
@@ -31,7 +31,7 @@ biggest_risks:
   - "NaN 処理ミスによるデータリーク"
 unknowns:
   - "USDJPY 5分足データにおける PatchTST vs iTransformer の実性能差"
-  - "75万行の全指標計算で 30 分以内に収まるか（pandas-ta パフォーマンス）"
+  - "75万行の全指標計算で 30 分以内に収まるか（ta ライブラリパフォーマンス）"
 ```
 
 ---
@@ -41,7 +41,7 @@ unknowns:
 ### Prerequisite ADRs
 
 - **ADR-0001-model-architecture-selection.md**: PatchTST / iTransformer / CNN の三択比較評価を行い Phase 3 で最終選定する。全モデルが共通インターフェース `forward(x)` を提供する
-- **ADR-0002-technical-indicator-library.md**: pandas-ta を採用。TA-Lib は C 依存のため除外。16 指標の API マッピングを定義
+- **ADR-0002-technical-indicator-library.md**: ta ライブラリ（ta>=0.11.0）を採用。pandas-ta は llvmlite/numba 依存によりビルド失敗のため変更（ユーザー承認済み）。TA-Lib は C 依存のため除外は継続。16 指標の API マッピングを定義
 
 ---
 
@@ -80,9 +80,9 @@ unknowns:
 
 #### Applicable Standards
 
-- [x] Python 3.11 `[explicit]` — Source: PRD「依存関係」節、設計書 2.1 節
+- [x] Python 3.12 `[explicit]` — Source: pyproject.toml `requires-python = ">=3.12"`
 - [x] PyTorch 2.x CPU/GPU 共通コード `[explicit]` — Source: PRD Technical Considerations
-- [x] pandas-ta（TA-Lib 禁止）`[explicit]` — Source: PRD AC-024、ADR-0002
+- [x] ta ライブラリ（ta>=0.11.0、TA-Lib 禁止）`[explicit]` — Source: pyproject.toml、ADR-0002（pandas-ta からの変更承認済み）
 - [x] uv による依存管理 `[explicit]` — Source: PRD AC-024、AC-025
 - [x] wandb 禁止 `[explicit]` — Source: PRD Won't Have 節
 - [x] any 型使用禁止 `[implicit]` — Evidence: CLAUDE.md
@@ -115,7 +115,7 @@ unknowns:
 
 #### Functional Requirements
 
-- 16 特徴量計算（pandas-ta + NumPy、NaN なし出力）
+- 16 特徴量計算（ta ライブラリ + NumPy、NaN なし出力）
 - 3 クラスラベル生成（閾値自動決定 + 外部指定可能）
 - 時系列分割（train 70% / val 15% / test 15%、順序保持、リークなし）
 - PatchTST 実装: (B, 60, 16) → (B, 3) softmax、RevIN 必須
@@ -251,14 +251,14 @@ unknowns:
 | Fact ID | Focus Area | Disposition | Rationale | Evidence |
 |---|---|---|---|---|
 | `pipeline.py:create_label` | ラベル生成関数とクラス番号定義 | preserve | 設計書の仕様をそのまま実装する。閾値自動決定（quantile(0.75)）とクラス番号（UP=0, DOWN=1, NEUTRAL=2）は PRD で確定済み | `create_label(df, horizon=1, threshold=None); デフォルト閾値: diff.abs().quantile(0.75); クラス番号固定: UP=0, DOWN=1, NEUTRAL=2; 外部から閾値指定可能; 上位25%のみUP/DOWN分類` |
-| `pipeline.py:feature_engineering` | 16特徴量計算の実装仕様 | preserve | 16 特徴量の順序・名称・API マッピングを ADR-0002 で確定。pandas-ta を使用し先頭 NaN 行をドロップする | `16特徴量の順序と名称: [MA60乖離率, 天井度, MA20, MA10, 前足比, 曜日(0-4), HLO, diff_HLO_and_Average, CCI(20), RSI(9), 振れ幅, VWAP乖離率, BB%B(BB(20)), MACDヒストグラム, ATR(14), 時間帯sin/cos]; pandas-ta使用; 先頭NaN行をドロップ` |
+| `pipeline.py:feature_engineering` | 16特徴量計算の実装仕様 | preserve | 16 特徴量の順序・名称・API マッピングを ADR-0002 で確定。ta ライブラリを使用し先頭 NaN 行をドロップする | `16特徴量の順序と名称: [MA60乖離率, 天井度(ceiling_degree), MA20, MA10, 前足比, HLO, diff_HLO_and_Average, CCI(20), RSI(9), 振れ幅, VWAP乖離率, BB%B(BB(20)), MACDヒストグラム, ATR(14), 時間帯sin, 時間帯cos]; ta ライブラリ使用; 先頭NaN行をドロップ; dayofweekは削除済み` |
 | `pipeline.py:split_and_normalize` | 時系列分割と正規化のデータリーク防止 | preserve | train 70% / val 15% / test 15% 順序分割と train-only Scaler fit は AC-003/AC-004 で確定。冪等性は SHA-256 で検証 | `train 70% / val 15% / test 15%（順序分割）; Scalerのfitはtrainのみ; scaler.pkl保存; 冪等性保証` |
 | `models/patchtst.py:PatchTST` | PatchTSTアーキテクチャの寸法整合性 | preserve | 入力(B,60,16)→パッチ→Linear(96→128)→Transformer→Dense(3)→softmax の寸法を設計書仕様のまま実装。RevIN と学習可能位置エンコーディングも実装 | `入力(batch, 60, 16) → パッチ分割(batch, 10, 96) → Linear(96→128) → Transformer → Dense(3)→softmax; RevIN必須; 位置エンコーディングは学習可能` |
 | `models/itransformer.py:iTransformer` | iTransformerの転置操作と特徴量軸Attention | preserve | 転置(B,60,16)→(B,16,60)→Linear(60→128)→Transformer→MeanPool→Dense(3)→softmax を設計書仕様のまま実装 | `入力(batch, 60, 16) → 転置(batch, 16, 60) → Linear(60→128) → Transformer(特徴量間Attention) → MeanPool → Dense(3)→softmax` |
 | `models/training.py:training_loop` | 学習ループ共通設定 | preserve | CrossEntropyLoss（クラス重み付き）・AdamW(lr=1e-4)・CosineAnnealingWarmRestarts(T_0=10)・batch=256・max_epochs=100・early_stopping=15 を共通 training.py に集約 | `CrossEntropyLoss(クラス重み付き); AdamW(lr=1e-4, weight_decay=1e-4); CosineAnnealingWarmRestarts(T_0=10); batch=256, max_epochs=100, early_stopping=15エポック; CSVログ` |
 | `evaluate.py` | 評価モジュール | preserve | Accuracy, F1(UP/DOWN), Precision, AUC-ROC, 高信頼度的中率(prob>0.8), CSV 出力を設計書仕様のまま実装 | `Accuracy, F1(UP/DOWN), Precision, AUC-ROC, 高信頼度的中率(prob>0.8); CSV出力` |
 | `inference/pipe_stub.py` | Named Pipeスタブ | preserve | DataSourceInterface による抽象化とスタブのダミーデータ生成を実装。切り替え可能構造は AC-020 で確定 | `DataSourceInterfaceによる抽象化; スタブはダミーOHLCVデータ生成; 切り替え可能構造` |
-| `pyproject.toml` | uvプロジェクト構成 | preserve | Python 3.11、torch CPU 版、pandas-ta を指定。wandb 禁止、TA-Lib 禁止は明示的にコメントで記録 | `Python 3.11; torch CPU版; pandas-ta; wandb禁止; TA-Lib禁止; uv sync完全再現` |
+| `pyproject.toml` | uvプロジェクト構成 | preserve | Python 3.12、torch CPU 版、ta>=0.11.0 を指定。wandb 禁止、TA-Lib 禁止は明示的にコメントで記録 | `Python 3.12; torch CPU版; ta>=0.11.0; wandb禁止; TA-Lib禁止; uv sync完全再現` |
 
 ---
 
@@ -349,7 +349,7 @@ graph TB
   | datetime, open, high, low, close, volume (6 列)
   ↓
 [Step 1] feature_engineering(df)
-  | pandas-ta で 16 テクニカル指標を計算
+  | ta ライブラリで 16 テクニカル指標を計算
   | 先頭 NaN 行をドロップ
   | → DataFrame (N_raw, 16)
   | Assert: NaN 数 == 0, shape[1] == 16
@@ -477,6 +477,11 @@ graph TB
 - **Responsibility**: scaler.pkl ロード、特徴量計算、正規化、モデル推論を一元管理。推論時間計測も担当
 - **Interface**:
   ```python
+  class PredictResult(TypedDict):
+      signal: str           # "UP" | "DOWN" | "NEUTRAL"
+      probabilities: dict[str, float]  # {"UP": float, "DOWN": float, "NEUTRAL": float}（合計 1.0）
+      inference_ms: float   # 50ms 未満が期待値
+
   class InferenceEngine:
       def __init__(
           self,
@@ -485,13 +490,9 @@ graph TB
           data_source: DataSourceInterface,
       ) -> None: ...
 
-      def predict(self) -> dict[str, object]:
+      def predict(self) -> PredictResult:
           """
-          returns: {
-              "signal": "UP" | "DOWN" | "NEUTRAL",
-              "probabilities": {"UP": float, "DOWN": float, "NEUTRAL": float},
-              "inference_ms": float,
-          }
+          returns: PredictResult（TypedDict）
           """
           ...
   ```
@@ -520,27 +521,29 @@ def run_pipeline(
     csv_path: str,
     output_dir: str,
     window_size: int = 60,
-    n_features: int = 16,
-    n_classes: int = 3,
-    train_ratio: float = 0.70,
-    val_ratio: float = 0.15,
+    horizon: int = 1,
     threshold: float | None = None,
+    ratios: list[float] | None = None,
 ) -> None:
     """
     USDJPY_M5.csv を読み込み、前処理・分割・正規化を実行して output_dir に保存する。
     冪等性保証: 同一入力 CSV に対し常に同一 numpy 配列を出力する。
+    ratios のデフォルト値は [0.70, 0.15, 0.15]（train/val/test）。
     """
 
 # models/base.py
 class BaseModel(nn.Module):
-    n_features: int = 16
-    n_classes: int = 3
-    seq_len: int = 60
+    SEQ_LEN: int = 60
+    N_FEATURES: int = 16
+    N_CLASSES: int = 3
 
 # inference/engine.py
 class InferenceEngine:
-    def predict(self) -> dict[str, object]:
-        # signal: str, probabilities: dict[str, float], inference_ms: float
+    def predict(self) -> PredictResult:
+        # PredictResult は TypedDict:
+        # signal: str ("UP" | "DOWN" | "NEUTRAL")
+        # probabilities: dict[str, float]
+        # inference_ms: float
 ```
 
 ---
@@ -579,11 +582,11 @@ Input:
   Type: DataSourceInterface.fetch_latest_ohlcv() の返却 DataFrame
   Preconditions:
     - rows == 60（直近 60 本）
-    - columns: open, high, low, close, volume
-  Validation: shape チェック（60行 × 5列以上）
+    - columns: ['datetime', 'open', 'high', 'low', 'close', 'volume']（6列）
+  Validation: shape チェック（60行 × 6列以上）
 
 Output:
-  Type: dict[str, object]
+  Type: PredictResult（TypedDict）
   Fields:
     signal: "UP" | "DOWN" | "NEUTRAL"
     probabilities: {"UP": float, "DOWN": float, "NEUTRAL": float}（合計 1.0）
@@ -639,14 +642,14 @@ y_batch = y_batch.to(DEVICE)
 [project]
 name = "pearless"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
-    "torch",          # CPU 版は --index-url で指定
-    "numpy",
-    "pandas",
-    "scikit-learn",
-    "pandas-ta",
-    "kaggle",
+    "torch>=2.2.0",   # CPU 版は --index-url で指定
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "scikit-learn>=1.4.0",
+    "ta>=0.11.0",     # pandas-ta から変更（llvmlite/numba依存ビルド失敗のため）
+    "kaggle>=1.6.0",
 ]
 
 [[tool.uv.index]]
@@ -807,7 +810,7 @@ uv export --format requirements-txt --no-hashes > requirements_kaggle.txt
 
 - **First verification target**: `feature_engineering()` 関数で合成 OHLCV DataFrame を入力し、出力 shape が `(N, 16)` かつ NaN 数ゼロであることを確認
 - **Success criteria**: `assert df_features.shape[1] == 16 and df_features.isna().sum().sum() == 0`
-- **Failure response**: pandas-ta の API 変更や列名の不一致が原因の場合は ADR-0002 の指標 API マッピングを見直す
+- **Failure response**: ta ライブラリの API 変更や列名の不一致が原因の場合は ADR-0002 の指標 API マッピングを見直す
 
 ### Output Comparison
 
@@ -847,7 +850,7 @@ uv export --format requirements-txt --no-hashes > requirements_kaggle.txt
 | scaler 不整合（学習時/推論時） | High | Low | `scaler.pkl` を `data/` ディレクトリに保存し、推論エンジンが必ず読み込む構造を強制 |
 | Kaggle GPU 時間不足（週 30h） | High | Medium | 直近 2 年分でデバッグ完了後、全期間で commit mode 実行。fp16 混合精度で学習時間を約 2 倍短縮 |
 | PatchTST / iTransformer が CNN を下回る | Medium | Low | 3 モデル比較を前提として CNN ベースラインを保持。アブレーションスタディで特徴量調整 |
-| pandas-ta パフォーマンス問題（75万行） | Medium | Medium | 処理時間計測（目標 30 分）。超過した場合はベクトル化実装への部分移行を検討 |
+| ta ライブラリパフォーマンス問題（75万行） | Medium | Medium | 処理時間計測（目標 30 分）。超過した場合はベクトル化実装への部分移行を検討 |
 | Named Pipe スタブと本番の非互換 | Low | Medium | `DataSourceInterface` で抽象化しスタブと実装を差し替え可能な設計を維持 |
 
 ---
@@ -874,3 +877,4 @@ uv export --format requirements-txt --no-hashes > requirements_kaggle.txt
 | Date | Version | Changes | Author |
 |---|---|---|---|
 | 2026-04-21 | 1.0 | 初版作成 | — |
+| 2026-05-11 | 1.1 | D001: 指標ライブラリを pandas-ta → ta>=0.11.0 に変更（llvmlite/numba依存ビルド失敗のためユーザー承認済み）; D003: Python 3.11 → 3.12; D004: run_pipeline() シグネチャを実装に合わせ更新（n_features/n_classes/train_ratio/val_ratio 削除、horizon/ratios 追加）; D005: DataSourceInterface 列定義を 6列（datetime 含む）に明記; D008: BaseModel 定数名を大文字（N_FEATURES/N_CLASSES/SEQ_LEN）に更新; D009: predict() 戻り値型を dict[str, object] → PredictResult（TypedDict）に更新; 特徴量リストに ceiling_degree 追加・dayofweek 削除 | — |

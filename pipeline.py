@@ -34,10 +34,10 @@ logger = logging.getLogger(__name__)
 # Design Doc: § Data Flow Step 1
 FEATURE_NAMES: list[str] = [
     "ma60_deviation",  # MA60乖離率: (close - MA60) / MA60
+    "ceiling_degree",  # 天井度: close.rolling(60).max()
     "ma20",  # MA20 単純移動平均
     "ma10",  # MA10 単純移動平均
     "prev_ratio",  # 前足比: close.pct_change()
-    "dayofweek",  # 曜日: 0=月曜...4=金曜
     "hlo",  # HLO: high - low
     "diff_hlo_and_average",  # HLO - HLO の14期間移動平均
     "cci",  # CCI(20): ta.trend.CCIIndicator
@@ -91,15 +91,15 @@ def feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
     ma60 = close.rolling(60).mean()
     ma60_deviation = (close - ma60) / ma60
 
+    # 天井度: close.rolling(60).max()（ADR-0002 #2）
+    ceiling_degree = close.rolling(60).max()
+
     # MA20 / MA10
     ma20 = close.rolling(20).mean()
     ma10 = close.rolling(10).mean()
 
     # 前足比: pct_change()
     prev_ratio = close.pct_change()
-
-    # 曜日: 0=月曜 ... 4=金曜
-    dayofweek = datetime_col.dt.dayofweek.astype(float)
 
     # HLO: high - low
     hlo = high - low
@@ -143,10 +143,10 @@ def feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
     df_features = pd.DataFrame(
         {
             "ma60_deviation": ma60_deviation.values,
+            "ceiling_degree": ceiling_degree.values,
             "ma20": ma20.values,
             "ma10": ma10.values,
             "prev_ratio": prev_ratio.values,
-            "dayofweek": dayofweek.values,
             "hlo": hlo.values,
             "diff_hlo_and_average": diff_hlo_and_average.values,
             "cci": cci.values,
