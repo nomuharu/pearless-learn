@@ -424,7 +424,11 @@ def run_pipeline(
     output_path.mkdir(parents=True, exist_ok=True)
 
     # SHA-256 で入力 CSV を記録（冪等性保証: Design Doc § Invariants）
-    raw_df = pd.read_csv(csv_path)
+    raw_df = pd.read_csv(
+        csv_path,
+        header=None,
+        names=["datetime", "open", "high", "low", "close", "volume"],
+    )
     input_hash = hashlib.sha256(raw_df.to_csv().encode()).hexdigest()
     logger.info("入力CSV SHA-256: %s", input_hash)
 

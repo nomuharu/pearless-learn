@@ -1,5 +1,12 @@
-# データファイル (OHLCV CSV・npy ファイル)
-data/
+# データファイル (OHLCV CSV・npy ファイル) — ファイルは無視、ディレクトリ構造(.gitkeep)は追跡
+data/raw/*
+data/processed/*
+data/npy/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/npy/.gitkeep
+# Windows ADS (Zone.Identifier)
+*:Zone.Identifier
 
 # 学習ログ CSV
 logs/

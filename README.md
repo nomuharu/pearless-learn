@@ -29,16 +29,43 @@ Kaggle API トークンは [https://www.kaggle.com/settings](https://www.kaggle.
 
 ## データパイプライン実行手順
 
-USDJPY M5 の CSV データを読み込み、16 特徴量計算・ラベル生成・時系列分割・正規化・numpy 配列保存を行います。
-
-```bash
-python pipeline.py --csv-path data/USDJPY_M5.csv --output-dir data/
-```
-
-成功すると `data/` ディレクトリに以下のファイルが生成されます。
+### データディレクトリ構成
 
 ```
 data/
+├── raw/          # 生データ（M1 CSV）← ここに配置
+├── processed/    # リサンプリング後（M5 CSV）
+└── npy/          # pipeline.py 出力（numpy 配列）
+```
+
+各ディレクトリは git 追跡されますが、ファイルは `.gitignore` で除外されています。
+
+### 1. 1分足 → 5分足 リサンプリング
+
+MT4 等からエクスポートした 1 分足 CSV（ヘッダーなし、列: `datetime, open, high, low, close, volume`）を `data/raw/` に配置し、リサンプリングします。
+
+```bash
+uv run python scripts/resample_m1_to_m5.py
+# デフォルト: data/raw/USDJPY_M1.csv → data/processed/USDJPY_M5.csv
+
+# パスを指定する場合:
+uv run python scripts/resample_m1_to_m5.py \
+    --input data/raw/USDJPY_M1.csv \
+    --output data/processed/USDJPY_M5.csv
+```
+
+### 2. 特徴量計算・分割・正規化
+
+5 分足 CSV から 16 特徴量計算・ラベル生成・時系列分割・正規化・numpy 配列保存を行います。
+
+```bash
+uv run python pipeline.py --csv-path data/processed/USDJPY_M5.csv --output-dir data/npy/
+```
+
+成功すると `data/npy/` ディレクトリに以下のファイルが生成されます。
+
+```
+data/npy/
 ├── X_train.npy   (N_train, 60, 16)
 ├── y_train.npy   (N_train,)
 ├── X_val.npy     (N_val, 60, 16)
@@ -47,8 +74,6 @@ data/
 ├── y_test.npy    (N_test,)
 └── scaler.pkl    (StandardScaler)
 ```
-
-入力 CSV のカラム: `datetime, open, high, low, close, volume`
 
 ---
 
@@ -59,13 +84,13 @@ data/
 パイプライン出力（numpy 配列）を Kaggle Dataset に公開します。
 
 ```bash
-python scripts/upload_dataset.py --data-dir data/ --dataset-name pearless-usdjpy-m5
+uv run --env-file .env python scripts/upload_dataset.py --data-dir data/npy/ --dataset-name pearless-usdjpy-m5
 ```
 
 確認のみ（ドライラン）:
 
 ```bash
-python scripts/upload_dataset.py --data-dir data/ --dataset-name pearless-usdjpy-m5 --dry-run
+uv run --env-file .env python scripts/upload_dataset.py --data-dir data/npy/ --dataset-name pearless-usdjpy-m5 --dry-run
 ```
 
 ### 2. ノートブック実行方法
@@ -141,15 +166,17 @@ print(result)
 ## アーキテクチャ概要
 
 ```
-USDJPY_M5.csv
-    └─ pipeline.py（16特徴量計算・分割・正規化）
-           └─ data/（X_*.npy, y_*.npy, scaler.pkl）
-                  ├─ scripts/upload_dataset.py → Kaggle Dataset
-                  │          └─ notebooks/*.ipynb → best_model.pt
-                  ├─ inference/engine.py（CPU推論）
-                  │     ├─ inference/pipe_stub.py（MT4スタブ）
-                  │     └─ models/（PatchTST / iTransformer / CNN）
-                  └─ evaluate.py（メトリクス比較CSV出力）→ logs/
+data/raw/USDJPY_M1.csv
+    └─ scripts/resample_m1_to_m5.py
+           └─ data/processed/USDJPY_M5.csv
+                  └─ pipeline.py（16特徴量計算・分割・正規化）
+                         └─ data/npy/（X_*.npy, y_*.npy, scaler.pkl）
+                                ├─ scripts/upload_dataset.py → Kaggle Dataset
+                                │          └─ notebooks/*.ipynb → best_model.pt
+                                ├─ inference/engine.py（CPU推論）
+                                │     ├─ inference/pipe_stub.py（MT4スタブ）
+                                │     └─ models/（PatchTST / iTransformer / CNN）
+                                └─ evaluate.py（メトリクス比較CSV出力）→ logs/
 ```
 
 ---
