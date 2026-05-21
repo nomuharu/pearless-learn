@@ -5,6 +5,7 @@ data/npy/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/npy/.gitkeep
+!data/npy/dataset-metadata.json
 # Windows ADS (Zone.Identifier)
 *:Zone.Identifier
 

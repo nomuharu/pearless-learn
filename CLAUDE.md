@@ -2,16 +2,12 @@
 
 ## Kaggle CLI 認証
 
-Kaggle認証は`.env`ファイルで管理（`.gitignore`済み）。
+Kaggle認証は`~/.kaggle/kaggle.json`で管理（標準方式）。
 
-```
-KAGGLE_USERNAME=your_username
-KAGGLE_KEY=your_key
+```json
+{"username": "nomuhosokawa", "key": "...access_token..."}
 ```
 
-- `upload_dataset.py`は`load_dotenv()`で自動読み込み済み
-- `kaggle`コマンドを直接実行する場合は`.env`を自動読みしないため、以下を使う:
-
-```bash
-uv run --env-file .env kaggle datasets list
-```
+- 通常のAPI Key（`KGAT`で始まらないもの）では書き込み系操作が401になる
+- `~/.kaggle/`配下のaccess tokenを使うこと
+- `kaggle`コマンドはそのまま実行可能（`--env-file`不要）
