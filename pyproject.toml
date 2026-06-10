@@ -10,6 +10,7 @@ dependencies = [
     "scikit-learn>=1.4.0",
     "kaggle>=1.6.0",
     "python-dotenv>=1.0.0",
+    "kagglehub>=1.0.1",
 ]
 
 [tool.uv.sources]
@@ -41,5 +42,6 @@ dev = [
     "mypy>=1.20.2",
     "pandas-stubs>=3.0.0.260204",
     "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
     "ruff>=0.15.11",
 ]

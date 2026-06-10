@@ -1,7 +1,7 @@
 {
-  "id": "nomuhosokawa/pearless-train-cnn-2",
-  "title": "Pearless Train CNN 2",
-  "code_file": "train_cnn.ipynb",
+  "id": "nomuhosokawa/pearless-train-itransformer",
+  "title": "Pearless Train iTransformer",
+  "code_file": "train_itransformer.ipynb",
   "language": "python",
   "kernel_type": "notebook",
   "is_private": "true",

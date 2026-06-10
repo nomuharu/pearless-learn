@@ -6,6 +6,9 @@ data/npy/*
 !data/processed/.gitkeep
 !data/npy/.gitkeep
 !data/npy/dataset-metadata.json
+# pearless-src dataset用ディレクトリ — models/とinference/のコピーは無視
+data/src/*
+!data/src/dataset-metadata.json
 # Windows ADS (Zone.Identifier)
 *:Zone.Identifier
 
@@ -23,6 +26,9 @@ logs/
 __pycache__/
 *.pyc
 *.pyo
+
+# カバレッジ
+.coverage
 
 # 仮想環境
 .venv/
