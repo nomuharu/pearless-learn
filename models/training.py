@@ -18,6 +18,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from models.base import BaseModel
+from models.configs import ModelConfig
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -256,3 +257,57 @@ def train(
     )
     print(f"Log saved to: {log_path}")
     print(f"Best model saved to: {best_model_path}")
+
+
+def train_from_config(
+    config: ModelConfig,
+    X_train: np.ndarray[tuple[int, int, int], np.dtype[np.float32]],
+    y_train: np.ndarray[tuple[int], np.dtype[np.intp]],
+    X_val: np.ndarray[tuple[int, int, int], np.dtype[np.float32]],
+    y_val: np.ndarray[tuple[int], np.dtype[np.intp]],
+    *,
+    checkpoint_dir: str = "/kaggle/working/",
+    log_dir: str = "logs",
+    n_epochs: int | None = None,
+    patience: int | None = None,
+) -> BaseModel:
+    """ModelConfig に従い特徴量選択・モデル構築・学習を一括実行する。
+
+    X_train / X_val はフル特徴量（ALL_FEATURES 順、16列）のまま渡すこと。
+    config.features に応じた列選択はこの関数内で行うため、
+    呼び出し側で列を絞る必要はない（絞った配列を渡すと shape エラーになる）。
+
+    Args:
+        config: モデル設定（MODEL_CONFIGS のエントリ）。
+        X_train: 訓練入力データ。shape (N_train, 60, len(ALL_FEATURES))。
+        y_train: 訓練ラベル。shape (N_train,)。値 {0, 1, 2}。
+        X_val: 検証入力データ。shape (N_val, 60, len(ALL_FEATURES))。
+        y_val: 検証ラベル。shape (N_val,)。値 {0, 1, 2}。
+        checkpoint_dir: チェックポイント保存先ディレクトリ。
+        log_dir: CSV ログ保存先ディレクトリ。
+        n_epochs: 指定時は config.train.n_epochs を上書き（スモークテスト用）。
+        patience: 指定時は config.train.patience を上書き（スモークテスト用）。
+
+    Returns:
+        学習済み（最終エポック時点の）モデルインスタンス。
+        ベストモデルは checkpoint_dir/best_model.pt に保存される。
+    """
+    model = config.build_model()
+    t = config.train
+    train(
+        model=model,
+        X_train=config.select_features(X_train),
+        y_train=y_train,
+        X_val=config.select_features(X_val),
+        y_val=y_val,
+        model_name=config.name,
+        n_epochs=n_epochs if n_epochs is not None else t.n_epochs,
+        batch_size=t.batch_size,
+        lr=t.lr,
+        weight_decay=t.weight_decay,
+        patience=patience if patience is not None else t.patience,
+        checkpoint_dir=checkpoint_dir,
+        log_dir=log_dir,
+        scheduler_t0=t.scheduler_t0,
+    )
+    return model

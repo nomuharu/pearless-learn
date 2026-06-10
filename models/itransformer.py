@@ -42,7 +42,8 @@ class _SelfAttention(nn.Module):
         attn = self.drop(attn)
         # (B, H, S, HD) → (B, S, D)
         out = (attn @ v).transpose(1, 2).contiguous().view(B, S, D)
-        return self.out_proj(out)
+        projected: torch.Tensor = self.out_proj(out)
+        return projected
 
 
 class _TransformerBlock(nn.Module):

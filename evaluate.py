@@ -33,17 +33,7 @@ from sklearn.metrics import (
 )
 
 from models.base import BaseModel
-from models.cnn import CNNModel
-from models.itransformer import iTransformer
-from models.patchtst import PatchTST
-
-
-# モデル名 → クラスのマッピング
-_MODEL_REGISTRY: dict[str, type[BaseModel]] = {
-    "patchtst": PatchTST,
-    "itransformer": iTransformer,
-    "cnn": CNNModel,
-}
+from models.configs import MODEL_CONFIGS, get_config
 
 # クラス番号定義（Design Doc § クラス番号固定）
 _CLASS_NAMES = ["UP", "DOWN", "NEUTRAL"]
@@ -196,8 +186,10 @@ def _load_model(
 ) -> BaseModel:
     """モデルを生成してチェックポイントを読み込む。
 
+    モデルは MODEL_CONFIGS の設定（特徴量数・アーキテクチャ）で構築される。
+
     Args:
-        model_name: "patchtst", "itransformer", "cnn" のいずれか。
+        model_name: MODEL_CONFIGS に登録されたモデル名。
         model_path: .pt ファイルのパス。
         device: ロード先デバイス。
 
@@ -208,16 +200,12 @@ def _load_model(
         ValueError: 未知の model_name が指定された場合。
         FileNotFoundError: モデルファイルが存在しない場合。
     """
-    if model_name not in _MODEL_REGISTRY:
-        raise ValueError(
-            f"未知のモデル名: {model_name!r}。有効な値: {list(_MODEL_REGISTRY.keys())}"
-        )
+    config = get_config(model_name)
 
     if not model_path.exists():
         raise FileNotFoundError(f"モデルファイルが見つかりません: {model_path}")
 
-    model_cls = _MODEL_REGISTRY[model_name]
-    model = model_cls()
+    model = config.build_model()
     state = torch.load(model_path, map_location=device, weights_only=True)
     model.load_state_dict(state)
     model.to(device)
@@ -234,10 +222,13 @@ def _run_single_model_evaluation(
 ) -> dict[str, float | int]:
     """単一モデルを評価して compute_metrics の結果を返す。
 
+    X_test はフル特徴量（ALL_FEATURES 順）のまま渡すこと。
+    モデルごとの特徴量選択（config.features）はこの関数内で行う。
+
     Args:
         model_name: 評価対象モデル名。
         model_path: モデルチェックポイントのパス。
-        X_test: テスト入力 shape (N, 60, 16)。
+        X_test: テスト入力 shape (N, 60, len(ALL_FEATURES))。
         y_test: テスト正解ラベル shape (N,)。
         device: 推論デバイス。
         threshold: 高信頼度フィルタ閾値（AC-016）。
@@ -245,10 +236,12 @@ def _run_single_model_evaluation(
     Returns:
         compute_metrics の結果 dict。
     """
+    config = get_config(model_name)
     model = _load_model(model_name, model_path, device)
     model.eval()
 
-    x_tensor = torch.from_numpy(X_test.astype(np.float32)).to(device)
+    X_selected = config.select_features(X_test)
+    x_tensor = torch.from_numpy(X_selected.astype(np.float32)).to(device)
 
     with torch.no_grad():
         y_prob_tensor = model(x_tensor)
@@ -299,7 +292,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        choices=["patchtst", "itransformer", "cnn", "all"],
+        choices=[*MODEL_CONFIGS.keys(), "all"],
         required=True,
         help="評価するモデル。'all' で全モデルを比較評価する。",
     )
@@ -313,7 +306,7 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         help=(
             "--model all 指定時のモデルファイル格納ディレクトリ。"
-            "best_patchtst.pt / best_itransformer.pt / best_cnn.pt を探す。"
+            "MODEL_CONFIGS の各モデルについて best_{name}.pt を探す。"
         ),
     )
     parser.add_argument(
@@ -350,7 +343,7 @@ def main() -> None:
                 "--model all 指定時は --model-path-dir を指定してください。"
             )
         model_path_dir: Path = args.model_path_dir
-        model_names = ["patchtst", "itransformer", "cnn"]
+        model_names = list(MODEL_CONFIGS.keys())
         results: dict[str, dict[str, Any]] = {}
         for name in model_names:
             model_path = model_path_dir / f"best_{name}.pt"

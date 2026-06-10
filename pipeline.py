@@ -27,29 +27,15 @@ import pandas as pd
 import ta
 from sklearn.preprocessing import StandardScaler
 
+from models.configs import ALL_FEATURES
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 # ADR-0002: 16特徴量の列名（順序固定）
 # Design Doc: § Data Flow Step 1
-FEATURE_NAMES: list[str] = [
-    "ma60_deviation",  # MA60乖離率: (close - MA60) / MA60
-    "ceiling_degree",  # 天井度: close.rolling(60).max()
-    "ma20",  # MA20 単純移動平均
-    "ma10",  # MA10 単純移動平均
-    "prev_ratio",  # 前足比: close.pct_change()
-    "hlo",  # HLO: high - low
-    "diff_hlo_and_average",  # HLO - HLO の14期間移動平均
-    "cci",  # CCI(20): ta.trend.CCIIndicator
-    "rsi",  # RSI(9): ta.momentum.RSIIndicator
-    "swing",  # 振れ幅: abs(high - open)
-    "vwap_deviation",  # VWAP乖離率: (close - VWAP) / VWAP
-    "bb_pband",  # BB%B: ta.volatility.BollingerBands.bollinger_pband()
-    "macd_hist",  # MACDヒストグラム: ta.trend.MACD.macd_diff()
-    "atr",  # ATR(14): ta.volatility.AverageTrueRange
-    "time_sin",  # 時間帯sin: sin(2π * time_index / 288)
-    "time_cos",  # 時間帯cos: cos(2π * time_index / 288)
-]
+# 正準定義は models/configs.py の ALL_FEATURES（モデル別の特徴量選択と単一情報源を共有）
+FEATURE_NAMES: list[str] = list(ALL_FEATURES)
 
 # クラス番号定義（Design Doc § Glossary, AC-007）
 CLASS_UP: int = 0
