@@ -172,6 +172,24 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
         # アーキテクチャ既定値: hidden_size=128, n_layers=2, bidirectional=True
         train=TrainConfig(early_stop_metric="val_f1_updown"),
     ),
+    # --- LSTM 改善バリアント（ベースライン lstm との比較用） ---
+    "lstm_h256": ModelConfig(
+        name="lstm_h256",
+        model_cls=LSTMModel,
+        # 容量増: hidden 256 + 正則化強め（過学習対策に dropout 0.3）
+        model_kwargs={"hidden_size": 256, "dropout": 0.3},
+        train=TrainConfig(early_stop_metric="val_f1_updown"),
+    ),
+    "lstm_focal": ModelConfig(
+        name="lstm_focal",
+        model_cls=LSTMModel,
+        # focal loss: 難例に損失を集中させ高確信度シグナルの質を上げる
+        train=TrainConfig(
+            early_stop_metric="val_f1_updown",
+            loss_type="focal",
+            focal_gamma=2.0,
+        ),
+    ),
 }
 
 

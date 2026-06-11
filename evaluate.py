@@ -565,6 +565,9 @@ def main() -> None:
         results: dict[str, dict[str, Any]] = {}
         for name in model_names:
             model_path = model_path_dir / f"best_{name}.pt"
+            if not model_path.exists():
+                print(f"スキップ: {name}（チェックポイントなし: {model_path}）")
+                continue
             print(f"評価中: {name} ({model_path})")
             results[name] = _run_single_model_evaluation(
                 model_name=name,
