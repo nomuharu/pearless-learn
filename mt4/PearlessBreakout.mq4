@@ -26,10 +26,14 @@ input int    ExportBars    = 300;      // Pythonに渡す直近バー数
 input double MaxSpreadYen  = 0.005;    // この値より広いスプレッド時は発注しない（0.5銭）
                                        // 高p_moveは指標発表と重なりやすく、その瞬間は
                                        // スプレッドが数銭に拡大してエッジが消えるため必須
+input bool   EnablePush    = true;     // スマホ(MetaTraderアプリ)へのpush通知
+                                       // 要設定: MT4 ツール→オプション→通知タブで
+                                       // MetaQuotes IDを登録しておくこと
 
 datetime g_lastBarTime = 0;        // 最後に処理した5分足の開始時刻
 datetime g_signalBarTime = 0;      // OCOを設置したシグナルのバー時刻
 bool     g_ocoActive = false;
+int      g_lastDay = -1;           // 日次サマリ通知用の日付追跡
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -60,6 +64,12 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnNewBar()
 {
+   // 0. 日付が変わっていたら前日の損益サマリを通知
+   int today = TimeDay(Time[0]);
+   if(g_lastDay != -1 && today != g_lastDay)
+      NotifyDailySummary();
+   g_lastDay = today;
+
    // 1. 前バーまでの建玉と注文を清算（1本ホールドの決済）
    CloseAllPositions();
    DeleteAllPendings();
@@ -152,17 +162,56 @@ void PlaceOco(double p0)
 void ManageOco()
 {
    bool hasPosition = false;
+   string entryInfo = "";
    for(int i = 0; i < OrdersTotal(); i++)
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol()) continue;
       if(OrderType() == OP_BUY || OrderType() == OP_SELL)
+      {
          hasPosition = true;
+         entryInfo = StringConcatenate(
+            (OrderType() == OP_BUY ? "BUY" : "SELL"), " ",
+            DoubleToString(OrderLots(), 2), "lot @",
+            DoubleToString(OrderOpenPrice(), Digits));
+      }
    }
    if(!hasPosition) return;
 
    DeleteAllPendings();
    g_ocoActive = false;  // 以降はバー終了の決済待ちのみ
+
+   // エントリー通知（OCO片側約定の検出時に1回だけ。g_ocoActiveの遷移で重複防止）
+   if(EnablePush)
+      SendNotification(StringConcatenate(
+         "[pearless] エントリー: ", Symbol(), " ", entryInfo,
+         " (", TimeToString(TimeCurrent(), TIME_MINUTES), ")"));
+}
+
+//+------------------------------------------------------------------+
+//| 前日の確定損益を集計してpush通知                                  |
+//+------------------------------------------------------------------+
+void NotifyDailySummary()
+{
+   datetime dayStart = StrToTime(TimeToString(Time[1], TIME_DATE));  // 前日0:00
+   double pnl = 0;
+   int n = 0;
+   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol()) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      if(OrderCloseTime() < dayStart) break;  // 履歴は概ね時系列なので打ち切り
+      pnl += OrderProfit() + OrderSwap() + OrderCommission();
+      n++;
+   }
+   if(n == 0) return;  // トレードのなかった日は通知しない
+   if(EnablePush)
+      SendNotification(StringConcatenate(
+         "[pearless] 日次サマリ ", TimeToString(dayStart, TIME_DATE),
+         ": ", IntegerToString(n), "トレード 損益 ",
+         DoubleToString(pnl, 0), AccountCurrency()));
+   Print("日次サマリ: ", n, "トレード 損益 ", pnl);
 }
 
 //+------------------------------------------------------------------+

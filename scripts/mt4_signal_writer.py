@@ -14,6 +14,12 @@ Usage:
         --mt4-files-dir "/path/to/MT4/MQL4/Files" \\
         --model-path data/best_lstm_focal.pt \\
         --scaler-path data/npy/scaler.pkl
+
+WSL から Windows 側 MT4 と連携する場合:
+    MT4 の「ファイル → データフォルダを開く」で出るパスを /mnt/c 経由で指定する。
+    例: --mt4-files-dir "/mnt/c/Users/<name>/AppData/Roaming/MetaQuotes/Terminal/<hash>/MQL4/Files"
+    9P 越しのファイルI/Oは数十ms の追加遅延があるが、5分足運用では無視できる。
+    EA 書き込み中のロック衝突に備え、読み失敗は次のポーリングで自動再試行する。
 """
 
 import argparse
@@ -81,17 +87,28 @@ def main() -> None:
         if mtime <= last_mtime:
             time.sleep(POLL_SEC)
             continue
-        last_mtime = mtime
 
         t0 = time.perf_counter()
-        bars = pd.read_csv(
-            bars_path,
-            header=None,
-            names=["datetime", "open", "high", "low", "close", "volume"],
-        )
+        try:
+            bars = pd.read_csv(
+                bars_path,
+                header=None,
+                names=["datetime", "open", "high", "low", "close", "volume"],
+            )
+        except (PermissionError, OSError, pd.errors.ParserError):
+            # EA が書き込み中（Windowsファイルロック）や書きかけの場合は
+            # mtime を更新せず次のポーリングで再試行する
+            time.sleep(POLL_SEC)
+            continue
+        last_mtime = mtime
+
         p_move = compute_p_move(bars, model, scaler)
         bar_time = bars["datetime"].iloc[-1]  # 最新確定バーの時刻（EA側と一致させる）
-        signal_path.write_text(f"{bar_time},{p_move:.4f}\n")
+        # EA が読んでいる最中に書きかけ内容を見せないよう、一時ファイル経由の
+        # rename で原子的に置き換える（WSL→Windows の 9P 越しでも有効）
+        tmp_path = signal_path.with_suffix(".tmp")
+        tmp_path.write_text(f"{bar_time},{p_move:.4f}\n")
+        tmp_path.replace(signal_path)
         elapsed_ms = (time.perf_counter() - t0) * 1000
         print(f"{bar_time}: p_move={p_move:.4f} ({elapsed_ms:.0f}ms)")
 
