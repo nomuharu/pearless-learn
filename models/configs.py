@@ -190,6 +190,15 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
             focal_gamma=2.0,
         ),
     ),
+    "lstm_dir": ModelConfig(
+        name="lstm_dir",
+        model_cls=LSTMModel,
+        # 方向専用モデル（2段構成の Stage 2）:
+        # UP/DOWN サンプルのみ（NEUTRAL 除外、ほぼ 50:50 の均衡データ）で学習する。
+        # データの絞り込みは notebook 側で行う（npy 自体は共通のまま）。
+        # 推論時は move 検知（lstm_focal の p_up+p_down）と組み合わせて使う。
+        train=TrainConfig(early_stop_metric="val_f1_updown"),
+    ),
 }
 
 

@@ -31,21 +31,26 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def _compute_class_weights(
     y_train: np.ndarray[tuple[int], np.dtype[np.intp]],
+    n_classes: int = BaseModel.N_CLASSES,
 ) -> torch.Tensor:
     """クラス重みを y_train から計算する。
 
     少数クラス（UP/DOWN）に高い重みを付与することで、
     NEUTRAL クラスの過剰予測を抑制する（NEUTRAL クラス不均衡対策）。
 
+    クラス数はモデル出力数（N_CLASSES）に固定する。y_train に出現しない
+    クラスがあっても（例: 方向専用学習で NEUTRAL を除外した場合）
+    重みテンソルの形がモデル出力と一致するようにするため。
+    出現しないクラスの重みは損失計算で参照されないため値は影響しない。
+
     Args:
         y_train: ラベル配列。値は {0, 1, 2}（UP=0, DOWN=1, NEUTRAL=2）。
+        n_classes: クラス数（デフォルト: BaseModel.N_CLASSES = 3）。
 
     Returns:
         shape (n_classes,) のクラス重みテンソル。
     """
-    classes = np.unique(y_train)
     n_samples = len(y_train)
-    n_classes = len(classes)
     # class_weight = n_samples / (n_classes * count_per_class)
     counts = np.bincount(y_train, minlength=n_classes)
     weights = n_samples / (n_classes * np.maximum(counts, 1))

@@ -153,3 +153,18 @@ def test_train_from_config_passes_extensions(tmp_path):
     assert "val_f1_up" in header
     assert "val_f1_down" in header
     assert (tmp_path / "ckpt" / "best_model.pt").exists()
+
+
+def test_class_weights_shape_fixed_even_with_missing_class():
+    """
+    y_train に出現しないクラスがあっても重みテンソルが N_CLASSES 要素になること
+    （方向専用学習で NEUTRAL を除外した場合のリグレッション防止）
+    """
+    from models.training import _compute_class_weights
+
+    y = np.array([0, 1, 0, 1], dtype=np.int64)  # NEUTRAL(2) なし
+
+    weights = _compute_class_weights(y)
+
+    assert weights.shape == (3,)
+    assert weights[0] == weights[1]  # UP/DOWN 均衡なら同重み

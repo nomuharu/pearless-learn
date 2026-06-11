@@ -1,0 +1,100 @@
+"""MT4連携用シグナル生成スクリプト。
+
+PearlessBreakout.mq4（EA）と対になる Python 側プロセス。
+
+動作:
+  1. MT4 の Files ディレクトリにある pearless_bars.csv（EAが5分足確定ごとに
+     出力する直近バーのOHLCV）を監視する
+  2. 更新を検知したら 16特徴量を計算 → 学習時の scaler で正規化 →
+     lstm_focal で推論し p_move = p_up + p_down を得る
+  3. pearless_signal.csv に「バー時刻,p_move」を書き込む（EAが読んで発注判断）
+
+Usage:
+    uv run python scripts/mt4_signal_writer.py \\
+        --mt4-files-dir "/path/to/MT4/MQL4/Files" \\
+        --model-path data/best_lstm_focal.pt \\
+        --scaler-path data/npy/scaler.pkl
+"""
+
+import argparse
+import pickle
+import time
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import torch
+
+from models.configs import MODEL_CONFIGS
+from pipeline import feature_engineering
+
+WINDOW = 60
+POLL_SEC = 0.2
+
+
+def compute_p_move(
+    bars: pd.DataFrame,
+    model: torch.nn.Module,
+    scaler: object,
+) -> float:
+    """直近バー群から p_move（= p_up + p_down）を計算する。"""
+    features = feature_engineering(bars)
+    if len(features) < WINDOW:
+        raise ValueError(f"特徴量行数不足: {len(features)} < {WINDOW}")
+    window = features.values[-WINDOW:].astype(np.float64)
+    # 学習時と同一の scaler（train で fit 済み StandardScaler）で正規化
+    flat = scaler.transform(window)  # type: ignore[attr-defined]
+    x = torch.from_numpy(flat.astype(np.float32)).unsqueeze(0)  # (1, 60, 16)
+    with torch.no_grad():
+        prob = model(x)[0]
+    return float(prob[0] + prob[1])
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="MT4向けシグナル生成ループ")
+    parser.add_argument("--mt4-files-dir", type=Path, required=True)
+    parser.add_argument("--model-path", type=Path, required=True)
+    parser.add_argument("--scaler-path", type=Path, required=True)
+    parser.add_argument("--model-name", default="lstm_focal")
+    args = parser.parse_args()
+
+    bars_path = args.mt4_files_dir / "pearless_bars.csv"
+    signal_path = args.mt4_files_dir / "pearless_signal.csv"
+
+    config = MODEL_CONFIGS[args.model_name]
+    model = config.build_model()
+    model.load_state_dict(
+        torch.load(args.model_path, map_location="cpu", weights_only=True)
+    )
+    model.eval()
+    with open(args.scaler_path, "rb") as f:
+        scaler = pickle.load(f)
+
+    print(f"監視開始: {bars_path}")
+    last_mtime = 0.0
+    while True:
+        try:
+            mtime = bars_path.stat().st_mtime
+        except FileNotFoundError:
+            time.sleep(POLL_SEC)
+            continue
+        if mtime <= last_mtime:
+            time.sleep(POLL_SEC)
+            continue
+        last_mtime = mtime
+
+        t0 = time.perf_counter()
+        bars = pd.read_csv(
+            bars_path,
+            header=None,
+            names=["datetime", "open", "high", "low", "close", "volume"],
+        )
+        p_move = compute_p_move(bars, model, scaler)
+        bar_time = bars["datetime"].iloc[-1]  # 最新確定バーの時刻（EA側と一致させる）
+        signal_path.write_text(f"{bar_time},{p_move:.4f}\n")
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        print(f"{bar_time}: p_move={p_move:.4f} ({elapsed_ms:.0f}ms)")
+
+
+if __name__ == "__main__":
+    main()
