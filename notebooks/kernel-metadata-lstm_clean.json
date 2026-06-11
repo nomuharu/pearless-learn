@@ -1,0 +1,19 @@
+{
+  "id": "nomuhosokawa/pearless-train-lstm-clean",
+  "title": "pearless-train-lstm-clean",
+  "code_file": "train_lstm_clean.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "nomuhosokawa/pearless-usdjpy-m5",
+    "nomuhosokawa/pearless-src",
+    "nomuhosokawa/pearless-aux-labels"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

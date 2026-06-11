@@ -35,3 +35,6 @@ __pycache__/
 
 # uv.lock はチーム開発では含める、個人開発では除外可
 # uv.lock
+# 補助ラベル（pearless-aux-labels dataset用） — ファイルは無視、metadataは追跡
+data/labels/*
+!data/labels/dataset-metadata.json

@@ -197,6 +197,17 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
         # UP/DOWN サンプルのみ（NEUTRAL 除外、ほぼ 50:50 の均衡データ）で学習する。
         # データの絞り込みは notebook 側で行う（npy 自体は共通のまま）。
         # 推論時は move 検知（lstm_focal の p_up+p_down）と組み合わせて使う。
+        # 実験結果(2026-06-11): 方向正答率50.3%でコイントス。方向は予測不能と結論
+        train=TrainConfig(early_stop_metric="val_f1_updown"),
+    ),
+    "lstm_clean": ModelConfig(
+        name="lstm_clean",
+        model_cls=LSTMModel,
+        # 往復バー予測（OCO戦略改善 Phase A）:
+        # ラベルは y_clean_*（0=往復, 1=クリーンブレイク, 2=不到達）。
+        # クラス2を除外した2クラス学習（scripts/make_clean_labels.py で生成、
+        # pearless-aux-labels dataset から読む）。
+        # 推論時は p_move ゲートに p_clean ゲートを重ねて往復トレードを回避する。
         train=TrainConfig(early_stop_metric="val_f1_updown"),
     ),
 }
