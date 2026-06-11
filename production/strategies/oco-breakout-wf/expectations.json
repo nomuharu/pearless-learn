@@ -1,0 +1,8 @@
+{
+  "strategy_id": "oco-breakout-wf",
+  "source": "scripts/backtest_oco_clean.py + walk-forward比較 (test 2024-03〜2026-04)",
+  "avg_pnl_sen": 1.25,
+  "trades_per_week": 7.0,
+  "win_rate_clean": 0.66,
+  "notes": "spread 0.2銭 + slip 0.3銭 込み。レジーム依存があり単月赤字は想定内"
+}
