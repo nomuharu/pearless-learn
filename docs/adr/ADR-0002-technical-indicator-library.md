@@ -110,6 +110,25 @@ graph LR
 
 全 16 指標を pandas-ta + NumPy で実装可能であることを確認。
 
+### 改訂 2026-06-10: 価格レベル系特徴量の定常化
+
+学習済みモデルの診断で、生の価格水準（円）を持つ特徴量が train/test 期間の
+価格レンジ差により深刻な分布シフトを起こすことが実測された
+（StandardScaler 正規化後の test 平均が ma10/ma20/天井度で +4.2σ）。
+以下の通り全特徴量を比率・乖離率に変更する（実装は `models/configs.py` の
+`ALL_FEATURES` を正準とする）:
+
+| 旧 | 新 | 新定義 |
+|---|---|---|
+| 天井度 ceiling_degree | ceiling_distance | `(close.rolling(60).max() - close) / close` |
+| MA20 ma20 | ma20_deviation | `(close - MA20) / MA20` |
+| MA10 ma10 | ma10_deviation | `(close - MA10) / MA10` |
+| HLO hlo | hlo_ratio | `(high - low) / close` |
+| 振れ幅 swing | swing_ratio | `abs(high - open) / close` |
+| ATR(14) atr | atr_ratio | `ATR(14) / close` |
+
+diff_HLO_and_Average は hlo_ratio ベース（`hlo_ratio - hlo_ratio.rolling(14).mean()`）に変更。
+
 ---
 
 ## Consequences

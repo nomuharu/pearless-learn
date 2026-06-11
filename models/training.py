@@ -5,6 +5,12 @@ Fact: CrossEntropyLoss（クラス重み付き）・AdamW・CosineAnnealingWarmR
 AC-022: logs/training_log_{model_name}_{timestamp}.csv に出力
 AC-023: 中断再開時に CSV に追記（行数が増加）
 wandb 禁止: コードに一切含めない
+
+拡張（2026-06-10 精度改善 P4）:
+    - loss="focal": クラス重み付き focal loss（少数クラス UP/DOWN の難例に集中）
+    - early_stop_metric="val_f1_updown": UP/DOWN の F1 平均を最大化する基準で
+      early stopping / ベストモデル選択を行う（val_loss 基準は NEUTRAL に
+      引きずられ、UP/DOWN を学習しきる前に打ち切られやすいため）
 """
 
 import csv
@@ -46,6 +52,55 @@ def _compute_class_weights(
     return torch.tensor(weights, dtype=torch.float32)
 
 
+def _compute_loss(
+    probs: torch.Tensor,
+    y: torch.Tensor,
+    class_weights: torch.Tensor,
+    loss_type: str,
+    focal_gamma: float,
+) -> torch.Tensor:
+    """softmax 済み確率に対する損失を計算する。
+
+    Args:
+        probs: shape (B, n_classes) の softmax 済み確率。
+        y: shape (B,) の正解ラベル。
+        class_weights: shape (n_classes,) のクラス重み。
+        loss_type: "weighted_ce"（クラス重み付き CE）または "focal"。
+        focal_gamma: focal loss の γ（loss_type="focal" 時のみ使用）。
+
+    Returns:
+        スカラーの損失テンソル。
+
+    Raises:
+        ValueError: 未知の loss_type が指定された場合。
+    """
+    # model.forward は softmax 済み確率を返すため log を取って NLL と等価に計算する
+    log_p = torch.log(probs + 1e-8)
+    if loss_type == "weighted_ce":
+        return nn.functional.nll_loss(log_p, y, weight=class_weights)
+    if loss_type == "focal":
+        # FL = -w_c * (1 - p_t)^γ * log(p_t)
+        # 重み付き平均（Σ loss / Σ w）にして weighted CE とスケールを揃える
+        p_t = probs.gather(1, y.unsqueeze(1)).squeeze(1)
+        w = class_weights[y]
+        focal = w * (1.0 - p_t).pow(focal_gamma) * -torch.log(p_t + 1e-8)
+        return focal.sum() / w.sum().clamp_min(1e-8)
+    raise ValueError(f"未知の loss_type: {loss_type!r}。有効な値: weighted_ce, focal")
+
+
+def _f1_per_class(
+    y_true: torch.Tensor,
+    y_pred: torch.Tensor,
+    class_idx: int,
+) -> float:
+    """単一クラスの F1 スコアを計算する（F1 = 2TP / (2TP + FP + FN)）。"""
+    tp = int(((y_pred == class_idx) & (y_true == class_idx)).sum())
+    fp = int(((y_pred == class_idx) & (y_true != class_idx)).sum())
+    fn = int(((y_pred != class_idx) & (y_true == class_idx)).sum())
+    denom = 2 * tp + fp + fn
+    return 2 * tp / denom if denom > 0 else 0.0
+
+
 def _build_log_path(model_name: str, log_dir: str = "logs") -> Path:
     """学習ログの CSV パスを生成する。
 
@@ -78,7 +133,15 @@ def _append_log_row(
         log_path: ログファイルの Path。
         row: 書き込む行データ（dict）。
     """
-    fieldnames = ["epoch", "train_loss", "val_loss", "val_accuracy", "elapsed_sec"]
+    fieldnames = [
+        "epoch",
+        "train_loss",
+        "val_loss",
+        "val_accuracy",
+        "val_f1_up",
+        "val_f1_down",
+        "elapsed_sec",
+    ]
     file_exists = log_path.exists()
     with open(log_path, mode="a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -103,10 +166,13 @@ def train(
     checkpoint_dir: str = "/kaggle/working/",
     log_dir: str = "logs",
     scheduler_t0: int = 10,
+    loss_type: str = "weighted_ce",
+    focal_gamma: float = 2.0,
+    early_stop_metric: str = "val_loss",
 ) -> None:
     """共通学習ループ。
 
-    CrossEntropyLoss（クラス重み付き）・AdamW・CosineAnnealingWarmRestarts を使用。
+    損失（クラス重み付き CE または focal）・AdamW・CosineAnnealingWarmRestarts を使用。
     Early stopping、CSV ログ、チェックポイント保存を行う。
 
     Args:
@@ -124,7 +190,19 @@ def train(
         checkpoint_dir: チェックポイント保存先ディレクトリ（デフォルト /kaggle/working/）。
         log_dir: CSV ログ保存先ディレクトリ（デフォルト "logs"）。
         scheduler_t0: CosineAnnealingWarmRestarts の T_0（デフォルト 10）。
+        loss_type: "weighted_ce" または "focal"（デフォルト "weighted_ce"）。
+        focal_gamma: focal loss の γ（loss_type="focal" 時のみ使用、デフォルト 2.0）。
+        early_stop_metric: early stopping / ベストモデル選択の基準。
+            "val_loss"（最小化）または "val_f1_updown"（UP/DOWN F1 平均の最大化）。
+
+    Raises:
+        ValueError: 未知の early_stop_metric が指定された場合。
     """
+    if early_stop_metric not in ("val_loss", "val_f1_updown"):
+        raise ValueError(
+            f"未知の early_stop_metric: {early_stop_metric!r}。"
+            "有効な値: val_loss, val_f1_updown"
+        )
     # デバイスにモデルを転送
     model = model.to(DEVICE)
 
@@ -156,7 +234,7 @@ def train(
     # CSV ログパスを生成（AC-022）
     log_path = _build_log_path(model_name=model_name, log_dir=log_dir)
 
-    best_val_loss = float("inf")
+    best_score = float("inf")
     patience_counter = 0
     epoch_start_time = time.perf_counter()
 
@@ -173,15 +251,8 @@ def train(
             y_batch = y_batch.to(DEVICE)
 
             optimizer.zero_grad()
-            # model.forward は softmax 済み確率を返すが、
-            # CrossEntropyLoss は logits を期待するため、
-            # log_softmax に変換して NLLLoss と等価な計算を行う
             probs = model(X_batch)
-            # CrossEntropyLoss に softmax 済み確率を渡すと計算が二重になるため、
-            # log(probs) を NLLLoss に通す
-            loss = nn.functional.nll_loss(
-                torch.log(probs + 1e-8), y_batch, weight=class_weights
-            )
+            loss = _compute_loss(probs, y_batch, class_weights, loss_type, focal_gamma)
             loss.backward()
             optimizer.step()
 
@@ -198,6 +269,8 @@ def train(
         n_val_batches = 0
         n_correct = 0
         n_total = 0
+        all_preds = []
+        all_targets = []
 
         with torch.no_grad():
             for X_batch, y_batch in val_loader:
@@ -205,8 +278,8 @@ def train(
                 y_batch = y_batch.to(DEVICE)
 
                 probs = model(X_batch)
-                loss = nn.functional.nll_loss(
-                    torch.log(probs + 1e-8), y_batch, weight=class_weights
+                loss = _compute_loss(
+                    probs, y_batch, class_weights, loss_type, focal_gamma
                 )
                 val_loss_sum += loss.item()
                 n_val_batches += 1
@@ -214,9 +287,16 @@ def train(
                 preds = probs.argmax(dim=-1)
                 n_correct += (preds == y_batch).sum().item()
                 n_total += y_batch.size(0)
+                all_preds.append(preds.cpu())
+                all_targets.append(y_batch.cpu())
 
         val_loss = val_loss_sum / max(n_val_batches, 1)
         val_accuracy = n_correct / max(n_total, 1)
+        val_preds = torch.cat(all_preds)
+        val_targets = torch.cat(all_targets)
+        val_f1_up = _f1_per_class(val_targets, val_preds, 0)
+        val_f1_down = _f1_per_class(val_targets, val_preds, 1)
+        val_f1_updown = (val_f1_up + val_f1_down) / 2
         elapsed_sec = time.perf_counter() - epoch_start
 
         # CSV ログ追記（AC-022/AC-023）
@@ -227,6 +307,8 @@ def train(
                 "train_loss": round(train_loss, 6),
                 "val_loss": round(val_loss, 6),
                 "val_accuracy": round(val_accuracy, 6),
+                "val_f1_up": round(val_f1_up, 6),
+                "val_f1_down": round(val_f1_down, 6),
                 "elapsed_sec": round(elapsed_sec, 3),
             },
         )
@@ -236,15 +318,22 @@ def train(
             f"train_loss={train_loss:.4f} | "
             f"val_loss={val_loss:.4f} | "
             f"val_acc={val_accuracy:.4f} | "
+            f"val_f1_up={val_f1_up:.4f} | "
+            f"val_f1_down={val_f1_down:.4f} | "
             f"elapsed={elapsed_sec:.1f}s"
         )
 
         # Early stopping とチェックポイント保存
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        # val_loss は最小化、val_f1_updown は最大化（符号反転して統一）
+        score = val_loss if early_stop_metric == "val_loss" else -val_f1_updown
+        if score < best_score:
+            best_score = score
             patience_counter = 0
             torch.save(model.state_dict(), best_model_path)
-            print(f"  -> Best model saved: val_loss={best_val_loss:.4f}")
+            print(
+                f"  -> Best model saved: {early_stop_metric}="
+                f"{abs(best_score):.4f}"
+            )
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -253,7 +342,8 @@ def train(
 
     total_elapsed = time.perf_counter() - epoch_start_time
     print(
-        f"Training completed in {total_elapsed:.1f}s. Best val_loss={best_val_loss:.4f}"
+        f"Training completed in {total_elapsed:.1f}s. "
+        f"Best {early_stop_metric}={abs(best_score):.4f}"
     )
     print(f"Log saved to: {log_path}")
     print(f"Best model saved to: {best_model_path}")
@@ -309,5 +399,8 @@ def train_from_config(
         checkpoint_dir=checkpoint_dir,
         log_dir=log_dir,
         scheduler_t0=t.scheduler_t0,
+        loss_type=t.loss_type,
+        focal_gamma=t.focal_gamma,
+        early_stop_metric=t.early_stop_metric,
     )
     return model

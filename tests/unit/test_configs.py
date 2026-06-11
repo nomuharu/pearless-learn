@@ -145,7 +145,7 @@ def test_build_model_uses_subset_n_features():
     Assert: 出力 shape (B, 3)
     """
     config = ModelConfig(
-        name="test", model_cls=CNNModel, features=("rsi", "cci", "atr")
+        name="test", model_cls=CNNModel, features=("rsi", "cci", "atr_ratio")
     )
     model = config.build_model()
 

@@ -77,21 +77,23 @@ def feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
     ma60 = close.rolling(60).mean()
     ma60_deviation = (close - ma60) / ma60
 
-    # 天井度: close.rolling(60).max()（ADR-0002 #2）
-    ceiling_degree = close.rolling(60).max()
+    # 天井距離率: (rolling max - close) / close
+    # 旧 ceiling_degree（生の rolling max）は価格水準そのもので分布シフトを
+    # 起こしたため比率に変更
+    ceiling_distance = (close.rolling(60).max() - close) / close
 
-    # MA20 / MA10
-    ma20 = close.rolling(20).mean()
-    ma10 = close.rolling(10).mean()
+    # MA20 / MA10 乖離率（旧: 生の移動平均値。価格水準のため比率に変更）
+    ma20_deviation = (close - close.rolling(20).mean()) / close.rolling(20).mean()
+    ma10_deviation = (close - close.rolling(10).mean()) / close.rolling(10).mean()
 
     # 前足比: pct_change()
     prev_ratio = close.pct_change()
 
-    # HLO: high - low
-    hlo = high - low
+    # HLO比率: (high - low) / close（旧: high - low。円単位のため比率に変更）
+    hlo_ratio = (high - low) / close
 
-    # diff_HLO_and_Average: HLO - HLO.rolling(14).mean()
-    diff_hlo_and_average = hlo - hlo.rolling(14).mean()
+    # diff_HLO_and_Average: hlo_ratio - hlo_ratio.rolling(14).mean()
+    diff_hlo_and_average = hlo_ratio - hlo_ratio.rolling(14).mean()
 
     # CCI(20): ADR-0002 #9, ta.trend.CCIIndicator
     cci = ta.trend.CCIIndicator(high=high, low=low, close=close, window=20).cci()
@@ -99,8 +101,8 @@ def feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
     # RSI(9): ADR-0002 #10, ta.momentum.RSIIndicator
     rsi = ta.momentum.RSIIndicator(close=close, window=9).rsi()
 
-    # 振れ幅: abs(high - open)
-    swing = (high - df["open"]).abs()
+    # 振れ幅比率: abs(high - open) / close（旧: 円単位のため比率に変更）
+    swing_ratio = (high - df["open"]).abs() / close
 
     # VWAP乖離率: (close - VWAP) / VWAP, ta.volume.VolumeWeightedAveragePrice
     vwap = ta.volume.VolumeWeightedAveragePrice(
@@ -116,10 +118,13 @@ def feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
     macd_indicator = ta.trend.MACD(close=close)
     macd_hist = macd_indicator.macd_diff()
 
-    # ATR(14): ta.volatility.AverageTrueRange
-    atr = ta.volatility.AverageTrueRange(
-        high=high, low=low, close=close, window=14
-    ).average_true_range()
+    # ATR(14)比率: ATR / close（旧: 円単位のため比率に変更）
+    atr_ratio = (
+        ta.volatility.AverageTrueRange(
+            high=high, low=low, close=close, window=14
+        ).average_true_range()
+        / close
+    )
 
     # 時間帯 sin/cos エンコーディング（AC-006, 周期288 = 1日の5分足本数）
     time_index = datetime_col.dt.hour * 12 + datetime_col.dt.minute // 5
@@ -129,19 +134,19 @@ def feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
     df_features = pd.DataFrame(
         {
             "ma60_deviation": ma60_deviation.values,
-            "ceiling_degree": ceiling_degree.values,
-            "ma20": ma20.values,
-            "ma10": ma10.values,
+            "ceiling_distance": ceiling_distance.values,
+            "ma20_deviation": ma20_deviation.values,
+            "ma10_deviation": ma10_deviation.values,
             "prev_ratio": prev_ratio.values,
-            "hlo": hlo.values,
+            "hlo_ratio": hlo_ratio.values,
             "diff_hlo_and_average": diff_hlo_and_average.values,
             "cci": cci.values,
             "rsi": rsi.values,
-            "swing": swing.values,
+            "swing_ratio": swing_ratio.values,
             "vwap_deviation": vwap_deviation.values,
             "bb_pband": bb_pband.values,
             "macd_hist": macd_hist.values,
-            "atr": atr.values,
+            "atr_ratio": atr_ratio.values,
             "time_sin": time_sin,
             "time_cos": time_cos,
         },

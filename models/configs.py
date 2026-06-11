@@ -22,25 +22,31 @@ import numpy as np
 from models.base import BaseModel
 from models.cnn import CNNModel
 from models.itransformer import iTransformer
+from models.lstm import LSTMModel
 from models.patchtst import PatchTST
 
 # 全特徴量の正準順序（ADR-0002）。npy の特徴量軸（最終軸）と一致する。
 # pipeline.FEATURE_NAMES はこの定義を参照する（単一情報源）。
+#
+# 定常化方針: 価格水準（円）の単位を持つ特徴量は使わず、すべて比率・乖離率に変換する。
+# 生の価格水準（旧 ma10/ma20/ceiling_degree 等）は train/test 期間で価格レンジが
+# 違うと分布シフトを起こし、StandardScaler 正規化後に test 平均が +4σ ずれる
+# 事故が実測された（2026-06-10 診断）。
 ALL_FEATURES: tuple[str, ...] = (
     "ma60_deviation",  # MA60乖離率: (close - MA60) / MA60
-    "ceiling_degree",  # 天井度: close.rolling(60).max()
-    "ma20",  # MA20 単純移動平均
-    "ma10",  # MA10 単純移動平均
+    "ceiling_distance",  # 天井距離率: (close.rolling(60).max() - close) / close
+    "ma20_deviation",  # MA20乖離率: (close - MA20) / MA20
+    "ma10_deviation",  # MA10乖離率: (close - MA10) / MA10
     "prev_ratio",  # 前足比: close.pct_change()
-    "hlo",  # HLO: high - low
-    "diff_hlo_and_average",  # HLO - HLO の14期間移動平均
+    "hlo_ratio",  # HLO比率: (high - low) / close
+    "diff_hlo_and_average",  # hlo_ratio - hlo_ratio の14期間移動平均
     "cci",  # CCI(20): ta.trend.CCIIndicator
     "rsi",  # RSI(9): ta.momentum.RSIIndicator
-    "swing",  # 振れ幅: abs(high - open)
+    "swing_ratio",  # 振れ幅比率: abs(high - open) / close
     "vwap_deviation",  # VWAP乖離率: (close - VWAP) / VWAP
     "bb_pband",  # BB%B: ta.volatility.BollingerBands.bollinger_pband()
     "macd_hist",  # MACDヒストグラム: ta.trend.MACD.macd_diff()
-    "atr",  # ATR(14): ta.volatility.AverageTrueRange
+    "atr_ratio",  # ATR(14)比率: ATR / close
     "time_sin",  # 時間帯sin: sin(2π * time_index / 288)
     "time_cos",  # 時間帯cos: cos(2π * time_index / 288)
 )
@@ -48,7 +54,14 @@ ALL_FEATURES: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class TrainConfig:
-    """学習ハイパーパラメータ。models.training.train() の引数に対応する。"""
+    """学習ハイパーパラメータ。models.training.train() の引数に対応する。
+
+    Attributes:
+        loss_type: "weighted_ce"（クラス重み付き CE）または "focal"。
+        focal_gamma: focal loss の γ（loss_type="focal" 時のみ使用）。
+        early_stop_metric: "val_loss"（最小化）または
+            "val_f1_updown"（UP/DOWN F1 平均の最大化）。
+    """
 
     n_epochs: int = 100
     batch_size: int = 256
@@ -56,6 +69,9 @@ class TrainConfig:
     weight_decay: float = 1e-4
     patience: int = 15
     scheduler_t0: int = 10
+    loss_type: str = "weighted_ce"
+    focal_gamma: float = 2.0
+    early_stop_metric: str = "val_loss"
 
 
 @dataclass(frozen=True)
@@ -127,23 +143,34 @@ class ModelConfig:
 
 
 # モデル名 → 設定のレジストリ。新モデルはここに 1 エントリ追加するだけでよい。
+# early_stop_metric="val_f1_updown": 目的変数である UP/DOWN F1 を直接最大化する
+# チェックポイントを選ぶ（val_loss 基準は NEUTRAL に支配され早期に打ち切られる）。
 MODEL_CONFIGS: dict[str, ModelConfig] = {
     "patchtst": ModelConfig(
         name="patchtst",
         model_cls=PatchTST,
         # アーキテクチャ既定値: seq_len=60, patch_len=6, stride=6,
         # d_model=128, n_heads=8, n_layers=3, dim_ff=256, dropout=0.2
+        train=TrainConfig(early_stop_metric="val_f1_updown"),
     ),
     "itransformer": ModelConfig(
         name="itransformer",
         model_cls=iTransformer,
         # アーキテクチャ既定値: seq_len=60, d_model=128, n_heads=8,
         # n_layers=3, dim_ff=256, dropout=0.2
+        train=TrainConfig(early_stop_metric="val_f1_updown"),
     ),
     "cnn": ModelConfig(
         name="cnn",
         model_cls=CNNModel,
         # アーキテクチャ既定値: seq_len=60（Conv チャネルは 32→64→128 固定）
+        train=TrainConfig(early_stop_metric="val_f1_updown"),
+    ),
+    "lstm": ModelConfig(
+        name="lstm",
+        model_cls=LSTMModel,
+        # アーキテクチャ既定値: hidden_size=128, n_layers=2, bidirectional=True
+        train=TrainConfig(early_stop_metric="val_f1_updown"),
     ),
 }
 
