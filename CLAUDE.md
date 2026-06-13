@@ -12,6 +12,15 @@ Kaggle認証は`~/.kaggle/kaggle.json`で管理（標準方式）。
 - `~/.kaggle/`配下のaccess tokenを使うこと
 - `kaggle`コマンドはそのまま実行可能（`--env-file`不要）
 
+## production/ ディレクトリの運用ルール
+
+採用済み戦略は `production/strategies/<strategy-id>/` 配下で管理する。
+詳細ルールは `production/README.md` を参照。
+
+- 新戦略採用時: `strategy.md` / `expectations.json` / 重みを置き、`production/README.md` の戦略一覧を更新して commit
+- フォワードテスト: `TEMPLATE_forward_test.md` をコピーして `forward_tests/<YYYY-MM_xxx>/session.md` を作成、終了後 `trades.csv` を追加して `summarize_forward_test.py` でサマリ生成
+- 月次メンテ（walk-forward系）: fine-tune済みの重みを `checkpoints/` に日付付きで追加し `strategy.md` を更新
+
 ## Kaggle Datasetへのソースコード配布
 
 Kaggleノートブックからのgit cloneはSecretsが使えないため断念。  

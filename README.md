@@ -200,6 +200,43 @@ data/raw/USDJPY_M1.csv
 
 ---
 
+## 採用済み戦略・運用管理（production/）
+
+採用が確定した戦略とフォワードテスト記録は `production/` 配下で管理します。
+
+```
+production/
+├── README.md                  ← 運用ルール・戦略一覧
+├── TEMPLATE_forward_test.md   ← フォワードテスト記録テンプレート
+└── strategies/
+    └── <strategy-id>/
+        ├── strategy.md        ← 定義・状態・パラメータ・採用履歴
+        ├── expectations.json  ← バックテスト期待値（summarize_forward_test.py が参照）
+        ├── checkpoints/       ← 採用重み（{model}_{YYYYMMDD}.pt）
+        └── forward_tests/     ← デモ/リアルのテスト記録
+```
+
+現在の採用戦略は [`production/README.md`](production/README.md) の戦略一覧を参照してください。
+
+### MT4 リアルタイム連携（フォワードテスト・本番運用）
+
+採用済み戦略を MT4 でリアルタイム運用する場合は以下の2プロセスを起動します。
+
+1. **MT4 EA**: `mt4/PearlessBreakout.mq4` を MetaEditor でコンパイルし、USDJPY M5 チャートにアタッチ
+2. **Python シグナルライター**: WSL 側で常駐起動
+
+```bash
+uv run python scripts/mt4_signal_writer.py \
+    --mt4-files-dir "/mnt/c/Users/<name>/AppData/Roaming/MetaQuotes/Terminal/<hash>/MQL4/Files" \
+    --model-path production/strategies/oco-breakout-wf/checkpoints/lstm_focal_20260611.pt \
+    --scaler-path data/npy/scaler.pkl
+```
+
+フォワードテスト終了後は `production/TEMPLATE_forward_test.md` をコピーして記録し、
+`uv run python scripts/summarize_forward_test.py <forward_test_dir>/trades.csv` でサマリを生成します。
+
+---
+
 ## 注意事項
 
 - wandb は使用しません（スコープ外）。実験管理は `logs/` の CSV ログのみで行います。

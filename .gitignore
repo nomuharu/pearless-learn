@@ -40,3 +40,5 @@ data/labels/*
 !data/labels/dataset-metadata.json
 # 採用済みモデルの重みは追跡する（グローバル *.pt 除外の例外）
 !production/strategies/*/checkpoints/*.pt
+# setuptools ビルドアーティファクト
+*.egg-info/

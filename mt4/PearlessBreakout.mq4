@@ -17,16 +17,17 @@
 //+------------------------------------------------------------------+
 #property strict
 
-input int    MagicNumber   = 20260611;
-input double LotSize       = 0.01;     // ロット
-input double MinPMove      = 0.55;     // p_move の発注閾値
-input double DeltaYen      = 0.015;    // 逆指値の距離（円。0.015 = 1.5銭）
+input int    MagicNumber    = 20260611;
+input double Leverage       = 25.0;    // 使用レバレッジ（証拠金 × このレバレッジ分を取引）
+input double MaxRiskPct     = 100.0;   // 有効証拠金の何%まで使うか（100=フル、50=半分）
+input double MinPMove       = 0.55;    // p_move の発注閾値
+input double DeltaYen       = 0.015;   // 逆指値の距離（円。0.015 = 1.5銭）
 input int    SlippagePoints = 10;      // 許容スリッページ（point）
-input int    ExportBars    = 300;      // Pythonに渡す直近バー数
-input double MaxSpreadYen  = 0.005;    // この値より広いスプレッド時は発注しない（0.5銭）
+input int    ExportBars     = 300;     // Pythonに渡す直近バー数
+input double MaxSpreadYen   = 0.005;   // この値より広いスプレッド時は発注しない（0.5銭）
                                        // 高p_moveは指標発表と重なりやすく、その瞬間は
                                        // スプレッドが数銭に拡大してエッジが消えるため必須
-input bool   EnablePush    = true;     // スマホ(MetaTraderアプリ)へのpush通知
+input bool   EnablePush     = true;    // スマホ(MetaTraderアプリ)へのpush通知
                                        // 要設定: MT4 ツール→オプション→通知タブで
                                        // MetaQuotes IDを登録しておくこと
 
@@ -134,23 +135,48 @@ bool ReadSignal(datetime barTime, double &pMove)
 }
 
 //+------------------------------------------------------------------+
+//| 有効証拠金・レバレッジからロットを自動計算                        |
+//| ロット = floor(有効証拠金 × MaxRiskPct% × Leverage / 100,000)    |
+//| 結果は broker の最小/最大ロット制限でクリップする                 |
+//+------------------------------------------------------------------+
+double CalcLotSize()
+{
+   double equity      = AccountEquity();
+   double tradable    = equity * (MaxRiskPct / 100.0) * Leverage;
+   double lotRaw      = tradable / 100000.0;  // 1標準ロット = 100,000 USD
+   double lotStep     = MarketInfo(Symbol(), MODE_LOTSTEP);
+   double lotMin      = MarketInfo(Symbol(), MODE_MINLOT);
+   double lotMax      = MarketInfo(Symbol(), MODE_MAXLOT);
+   // lotStep単位に切り捨て
+   double lot = MathFloor(lotRaw / lotStep) * lotStep;
+   lot = MathMax(lotMin, MathMin(lot, lotMax));
+   return NormalizeDouble(lot, 2);
+}
+
+//+------------------------------------------------------------------+
 //| OCO逆指値の設置（買い: P0+δ / 売り: P0−δ、有効期限はバー終了）   |
 //+------------------------------------------------------------------+
 void PlaceOco(double p0)
 {
+   double lotSize = CalcLotSize();
    datetime expiry = Time[0] + PeriodSeconds();  // このバーの終わり
    double buyTrig  = NormalizeDouble(p0 + DeltaYen, Digits);
    double sellTrig = NormalizeDouble(p0 - DeltaYen, Digits);
 
-   int buyTicket = OrderSend(Symbol(), OP_BUYSTOP, LotSize, buyTrig,
+   int buyTicket = OrderSend(Symbol(), OP_BUYSTOP, lotSize, buyTrig,
                              SlippagePoints, 0, 0,
                              "pearless-oco", MagicNumber, expiry, clrBlue);
    if(buyTicket < 0) Print("BuyStop失敗: ", GetLastError());
 
-   int sellTicket = OrderSend(Symbol(), OP_SELLSTOP, LotSize, sellTrig,
+   int sellTicket = OrderSend(Symbol(), OP_SELLSTOP, lotSize, sellTrig,
                               SlippagePoints, 0, 0,
                               "pearless-oco", MagicNumber, expiry, clrRed);
    if(sellTicket < 0) Print("SellStop失敗: ", GetLastError());
+
+   Print("OCO設置: lot=", DoubleToString(lotSize, 2),
+         " equity=", DoubleToString(AccountEquity(), 0),
+         " buy@", DoubleToString(buyTrig, Digits),
+         " sell@", DoubleToString(sellTrig, Digits));
 
    g_ocoActive = (buyTicket >= 0 || sellTicket >= 0);
    g_signalBarTime = Time[0];
