@@ -203,7 +203,7 @@ void PlaceMarketOrder(string direction, double pMove, double pUp)
 }
 
 //+------------------------------------------------------------------+
-//| 全建玉を成行決済（5分時間エグジット）                             |
+//| 全建玉を成行決済（5分時間エグジット）、決済通知を送る             |
 //+------------------------------------------------------------------+
 void CloseAllPositions()
 {
@@ -211,10 +211,28 @@ void CloseAllPositions()
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol()) continue;
+
+      // 決済前に損益・エントリー情報を記録（OrderClose後はOrderSelectできないため）
+      string dir        = (OrderType() == OP_BUY ? "BUY" : "SELL");
+      double lots       = OrderLots();
+      double openPrice  = OrderOpenPrice();
+      double profit     = OrderProfit() + OrderSwap() + OrderCommission();
+
+      bool closed = false;
       if(OrderType() == OP_BUY)
-         OrderClose(OrderTicket(), OrderLots(), Bid, SlippagePoints, clrGray);
+         closed = OrderClose(OrderTicket(), lots, Bid, SlippagePoints, clrGray);
       else if(OrderType() == OP_SELL)
-         OrderClose(OrderTicket(), OrderLots(), Ask, SlippagePoints, clrGray);
+         closed = OrderClose(OrderTicket(), lots, Ask, SlippagePoints, clrGray);
+
+      if(closed && EnablePush)
+      {
+         string pnlStr = (profit >= 0 ? "+" : "") + DoubleToString(profit, 0);
+         SendNotification(StringConcatenate(
+            "[pearless-dir] 決済 ", dir, " ", DoubleToString(lots, 2), "lot",
+            " 損益:", pnlStr, AccountCurrency(),
+            " @open:", DoubleToString(openPrice, Digits),
+            " (", TimeToString(TimeCurrent(), TIME_MINUTES), ")"));
+      }
    }
 }
 
