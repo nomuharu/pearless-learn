@@ -2,7 +2,7 @@
 
 最終更新: 2026-06-16
 状態: forward-testing
-MT4 MagicNumber: （未割り当て。MT4 組み込み時に決定する）
+MT4 MagicNumber: 20260616（PearlessDirection.mq4）
 
 ## 構成サマリ
 
@@ -15,7 +15,7 @@ Stage 2 で lstm_dir_v2（MTF 24特徴量）が方向を予測して成行エン
 | Stage 1 モデル | lstm_focal（oco-breakout-wf 共用） | p_move = p_up + p_down でボラ選別 |
 | Stage 2 モデル | lstm_dir_v2（M5 16列 + M15/H1 8列 = 24特徴量） | val_f1_updown ~0.727 |
 | 閾値 | t_move=0.88, t_dir=0.60 | val グリッドサーチで選択 |
-| エントリー | シグナル足終値で成行（p_up >= 0.60 → BUY、p_up <= 0.40 → SELL） | — |
+| エントリー | シグナル足終値で成行（p_up >= 0.60 → BUY、p_down >= 0.60 → SELL） | — |
 | 決済 | 1足後（5分後）の終値で成行クローズ | backtest_dir_v2.py の設定と同じ |
 | TP/SL | なし（時間エグジットのみ） | — |
 | 保有時間 | 5分（1足固定） | — |
@@ -25,6 +25,23 @@ Stage 2 で lstm_dir_v2（MTF 24特徴量）が方向を予測して成行エン
 - test 期間 2024-03〜2026-04（spread 0.2銭込み）
 - **6,280トレード、平均 +2.902銭/トレード、勝率 65.8%**
 - 頻度: 約 8.7件/日
+
+## MT4 連携ファイル
+
+| ファイル | 役割 |
+|---|---|
+| `mt4/PearlessDirection.mq4` | EA 本体。MagicNumber=20260616、成行エントリー・5分クローズ |
+| `scripts/mt4_signal_writer_dir_v2.py` | Python 推論プロセス。2段推論 → `pearless_dir_signal.csv` 出力 |
+
+起動コマンド例（WSL）:
+```bash
+uv run python scripts/mt4_signal_writer_dir_v2.py \
+    --mt4-files-dir "/mnt/c/Users/<name>/AppData/Roaming/MetaQuotes/Terminal/<hash>/MQL4/Files" \
+    --focal-model-path production/strategies/oco-breakout-wf/checkpoints/lstm_focal_20260611.pt \
+    --dir-model-path production/strategies/mtf-direction-v2/checkpoints/lstm_dir_v2_20260616.pt \
+    --scaler-m5-path data/npy/scaler.pkl \
+    --scaler-mtf-path data/npy_mtf/scaler_mtf.pkl
+```
 
 ## 採用チェックポイント
 
