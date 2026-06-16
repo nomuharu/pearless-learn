@@ -21,6 +21,18 @@ Kaggle認証は`~/.kaggle/kaggle.json`で管理（標準方式）。
 - フォワードテスト: `TEMPLATE_forward_test.md` をコピーして `forward_tests/<YYYY-MM_xxx>/session.md` を作成、終了後 `trades.csv` を追加して `summarize_forward_test.py` でサマリ生成
 - 月次メンテ（walk-forward系）: fine-tune済みの重みを `checkpoints/` に日付付きで追加し `strategy.md` を更新
 
+## 新実験手順（モデル改善・特徴量追加など）
+
+新しい手法を試すときは `/new-experiment` スキルを使う。
+
+```
+/new-experiment [モデル名] [suffix]
+```
+
+詳細な手順は `.claude/skills/new-experiment/SKILL.md` を参照。
+
+---
+
 ## Kaggle Datasetへのソースコード配布
 
 Kaggleノートブックからのgit cloneはSecretsが使えないため断念。  

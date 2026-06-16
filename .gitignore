@@ -1,11 +1,14 @@
 # データファイル (OHLCV CSV・npy ファイル) — ファイルは無視、ディレクトリ構造(.gitkeep)は追跡
 data/raw/*
-data/processed/*
-data/npy/*
 !data/raw/.gitkeep
+data/processed/*
 !data/processed/.gitkeep
+data/npy/*
 !data/npy/.gitkeep
 !data/npy/dataset-metadata.json
+data/npy_mtf/*
+!data/npy_mtf/.gitkeep
+!data/npy_mtf/dataset-metadata.json
 # pearless-src dataset用ディレクトリ — models/とinference/のコピーは無視
 data/src/*
 !data/src/dataset-metadata.json

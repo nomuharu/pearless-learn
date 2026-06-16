@@ -32,24 +32,42 @@ from models.patchtst import PatchTST
 # 生の価格水準（旧 ma10/ma20/ceiling_degree 等）は train/test 期間で価格レンジが
 # 違うと分布シフトを起こし、StandardScaler 正規化後に test 平均が +4σ ずれる
 # 事故が実測された（2026-06-10 診断）。
+#
+# マルチタイムフレーム特徴量（末尾 8 列）:
+#   M15/H1 の上位足コンテキストを付加（方向予測 lstm_dir_v2 用, 2026-06-16 追加）。
+#   M5 の npy（16列）との後方互換性を保つため末尾に追加する。
+#   M5専用モデル（lstm_focal など）は features= で 先頭16列のみを指定して使い続ける。
 ALL_FEATURES: tuple[str, ...] = (
-    "ma60_deviation",  # MA60乖離率: (close - MA60) / MA60
-    "ceiling_distance",  # 天井距離率: (close.rolling(60).max() - close) / close
-    "ma20_deviation",  # MA20乖離率: (close - MA20) / MA20
-    "ma10_deviation",  # MA10乖離率: (close - MA10) / MA10
-    "prev_ratio",  # 前足比: close.pct_change()
-    "hlo_ratio",  # HLO比率: (high - low) / close
-    "diff_hlo_and_average",  # hlo_ratio - hlo_ratio の14期間移動平均
-    "cci",  # CCI(20): ta.trend.CCIIndicator
-    "rsi",  # RSI(9): ta.momentum.RSIIndicator
-    "swing_ratio",  # 振れ幅比率: abs(high - open) / close
-    "vwap_deviation",  # VWAP乖離率: (close - VWAP) / VWAP
-    "bb_pband",  # BB%B: ta.volatility.BollingerBands.bollinger_pband()
-    "macd_hist",  # MACDヒストグラム: ta.trend.MACD.macd_diff()
-    "atr_ratio",  # ATR(14)比率: ATR / close
-    "time_sin",  # 時間帯sin: sin(2π * time_index / 288)
-    "time_cos",  # 時間帯cos: cos(2π * time_index / 288)
+    "ma60_deviation",       # MA60乖離率: (close - MA60) / MA60
+    "ceiling_distance",     # 天井距離率: (close.rolling(60).max() - close) / close
+    "ma20_deviation",       # MA20乖離率: (close - MA20) / MA20
+    "ma10_deviation",       # MA10乖離率: (close - MA10) / MA10
+    "prev_ratio",           # 前足比: close.pct_change()
+    "hlo_ratio",            # HLO比率: (high - low) / close
+    "diff_hlo_and_average", # hlo_ratio - hlo_ratio の14期間移動平均
+    "cci",                  # CCI(20): ta.trend.CCIIndicator
+    "rsi",                  # RSI(9): ta.momentum.RSIIndicator
+    "swing_ratio",          # 振れ幅比率: abs(high - open) / close
+    "vwap_deviation",       # VWAP乖離率: (close - VWAP) / VWAP
+    "bb_pband",             # BB%B: ta.volatility.BollingerBands.bollinger_pband()
+    "macd_hist",            # MACDヒストグラム: ta.trend.MACD.macd_diff()
+    "atr_ratio",            # ATR(14)比率: ATR / close
+    "time_sin",             # 時間帯sin: sin(2π * time_index / 288)
+    "time_cos",             # 時間帯cos: cos(2π * time_index / 288)
+    # --- 上位足コンテキスト (M15) ---
+    "m15_ma20_deviation",   # M15 MA20乖離率: 中期トレンド方向
+    "m15_rsi",              # M15 RSI(9): 中期モメンタム
+    "m15_hlo_ratio",        # M15 HLO比率: 中期ボラティリティ水準
+    "m15_atr_ratio",        # M15 ATR(14)比率: 中期ボラティリティスケール
+    # --- 上位足コンテキスト (H1) ---
+    "h1_ma20_deviation",    # H1 MA20乖離率: 長期トレンド方向
+    "h1_rsi",               # H1 RSI(14): 長期モメンタム
+    "h1_hlo_ratio",         # H1 HLO比率: 長期ボラティリティ水準
+    "h1_bb_pband",          # H1 BB%B: 長期価格帯位置
 )
+
+# M5 のみの特徴量（マルチTF追加前の 16 列）。後方互換モデル用。
+M5_FEATURES: tuple[str, ...] = ALL_FEATURES[:16]
 
 
 @dataclass(frozen=True)
@@ -121,19 +139,27 @@ class ModelConfig:
     def select_features(
         self, X: np.ndarray[Any, np.dtype[np.float32]]
     ) -> np.ndarray[Any, np.dtype[np.float32]]:
-        """フル特徴量配列 (N, T, len(ALL_FEATURES)) から使用列だけを抽出する。
+        """フル特徴量配列 (N, T, F) から使用列だけを抽出する。
+
+        F は len(ALL_FEATURES) またはその部分列数（M5 のみの 16 列 npy 対応）。
+        features の列インデックスが全て X の特徴量軸範囲内であれば動作する。
 
         Args:
             X: 最終軸が ALL_FEATURES 順のフル特徴量配列。
 
         Returns:
-            shape (N, T, n_features) の配列。全特徴量使用時は X をそのまま返す。
+            shape (N, T, n_features) の配列。全特徴量一致時は X をそのまま返す。
+
+        Raises:
+            ValueError: 必要な列インデックスが X の軸サイズを超える場合。
         """
-        if X.shape[-1] != len(ALL_FEATURES):
+        n_cols = X.shape[-1]
+        max_idx = max(self.feature_indices()) if self.features else 0
+        if max_idx >= n_cols:
             raise ValueError(
-                f"X の特徴量軸は {len(ALL_FEATURES)} を期待: got {X.shape[-1]}"
+                f"X の特徴量軸 ({n_cols}) が不足: 必要なインデックス最大値={max_idx}"
             )
-        if self.features == ALL_FEATURES:
+        if self.features == ALL_FEATURES and n_cols == len(ALL_FEATURES):
             return X
         return X[:, :, list(self.feature_indices())]
 
@@ -149,6 +175,7 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "patchtst": ModelConfig(
         name="patchtst",
         model_cls=PatchTST,
+        features=M5_FEATURES,
         # アーキテクチャ既定値: seq_len=60, patch_len=6, stride=6,
         # d_model=128, n_heads=8, n_layers=3, dim_ff=256, dropout=0.2
         train=TrainConfig(early_stop_metric="val_f1_updown"),
@@ -156,6 +183,7 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "itransformer": ModelConfig(
         name="itransformer",
         model_cls=iTransformer,
+        features=M5_FEATURES,
         # アーキテクチャ既定値: seq_len=60, d_model=128, n_heads=8,
         # n_layers=3, dim_ff=256, dropout=0.2
         train=TrainConfig(early_stop_metric="val_f1_updown"),
@@ -163,12 +191,14 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "cnn": ModelConfig(
         name="cnn",
         model_cls=CNNModel,
+        features=M5_FEATURES,
         # アーキテクチャ既定値: seq_len=60（Conv チャネルは 32→64→128 固定）
         train=TrainConfig(early_stop_metric="val_f1_updown"),
     ),
     "lstm": ModelConfig(
         name="lstm",
         model_cls=LSTMModel,
+        features=M5_FEATURES,
         # アーキテクチャ既定値: hidden_size=128, n_layers=2, bidirectional=True
         train=TrainConfig(early_stop_metric="val_f1_updown"),
     ),
@@ -176,6 +206,7 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "lstm_h256": ModelConfig(
         name="lstm_h256",
         model_cls=LSTMModel,
+        features=M5_FEATURES,
         # 容量増: hidden 256 + 正則化強め（過学習対策に dropout 0.3）
         model_kwargs={"hidden_size": 256, "dropout": 0.3},
         train=TrainConfig(early_stop_metric="val_f1_updown"),
@@ -183,6 +214,7 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "lstm_focal": ModelConfig(
         name="lstm_focal",
         model_cls=LSTMModel,
+        features=M5_FEATURES,
         # focal loss: 難例に損失を集中させ高確信度シグナルの質を上げる
         train=TrainConfig(
             early_stop_metric="val_f1_updown",
@@ -193,6 +225,7 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "lstm_dir": ModelConfig(
         name="lstm_dir",
         model_cls=LSTMModel,
+        features=M5_FEATURES,
         # 方向専用モデル（2段構成の Stage 2）:
         # UP/DOWN サンプルのみ（NEUTRAL 除外、ほぼ 50:50 の均衡データ）で学習する。
         # データの絞り込みは notebook 側で行う（npy 自体は共通のまま）。
@@ -203,11 +236,25 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
     "lstm_clean": ModelConfig(
         name="lstm_clean",
         model_cls=LSTMModel,
+        features=M5_FEATURES,
         # 往復バー予測（OCO戦略改善 Phase A）:
         # ラベルは y_clean_*（0=往復, 1=クリーンブレイク, 2=不到達）。
         # クラス2を除外した2クラス学習（scripts/make_clean_labels.py で生成、
         # pearless-aux-labels dataset から読む）。
         # 推論時は p_move ゲートに p_clean ゲートを重ねて往復トレードを回避する。
+        train=TrainConfig(early_stop_metric="val_f1_updown"),
+    ),
+    # --- マルチタイムフレーム方向予測 v2 ---
+    "lstm_dir_v2": ModelConfig(
+        name="lstm_dir_v2",
+        model_cls=LSTMModel,
+        features=ALL_FEATURES,  # 24特徴量（M5 16列 + M15/H1 上位足 8列）
+        # M15/H1 コンテキストを追加した方向専用モデル。
+        # 前回実験(lstm_dir)は M5 16特徴量のみで50.3%→コイントス。
+        # 上位足トレンド方向を加えることで54%超えを目指す（2026-06-16）。
+        # UP/DOWN サンプルのみ（NEUTRAL 除外）で学習する（notebook 側でフィルタ）。
+        # npy は pipeline_mtf.py で生成した 24列のものを使う。
+        model_kwargs={"hidden_size": 128, "n_layers": 2},
         train=TrainConfig(early_stop_metric="val_f1_updown"),
     ),
 }
