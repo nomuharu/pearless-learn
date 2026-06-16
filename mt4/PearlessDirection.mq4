@@ -19,7 +19,7 @@
 #property strict
 
 input int    MagicNumber    = 20260616;
-input double Leverage       = 25.0;    // 使用レバレッジ
+input double Leverage       = 2.5;     // 使用レバレッジ
 input double MaxRiskPct     = 100.0;   // 有効証拠金の何%まで使うか
 input int    SlippagePoints = 10;      // 許容スリッページ（point）
 input int    ExportBars     = 300;     // Pythonに渡す直近バー数

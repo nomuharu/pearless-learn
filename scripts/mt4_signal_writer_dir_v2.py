@@ -27,8 +27,12 @@ WSL から Windows 側 MT4 と連携する場合:
 
 import argparse
 import pickle
+import sys
 import time
 from pathlib import Path
+
+# scripts/ から実行した場合でもプロジェクトルートをパスに追加する
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import pandas as pd
