@@ -1,0 +1,18 @@
+{
+  "id": "nomuhosokawa/pearless-train-lstm-dir-v2-mtf",
+  "title": "Pearless Train LSTM Dir V2 (MTF)",
+  "code_file": "train_lstm_dir_v2.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "nomuhosokawa/pearless-usdjpy-m5-mtf",
+    "nomuhosokawa/pearless-src"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

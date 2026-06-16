@@ -1,0 +1,8 @@
+{
+  "strategy_id": "mtf-direction-v2",
+  "source": "scripts/backtest_dir_v2.py (test 2024-03〜2026-04, t_move=0.88, t_dir=0.60)",
+  "avg_pnl_sen": 2.902,
+  "trades_per_day": 8.7,
+  "win_rate": 0.658,
+  "notes": "spread 0.2銭込み。TP/SL なし・5分時間エグジット。Stage1=lstm_focal(t_move=0.88), Stage2=lstm_dir_v2(t_dir=0.60)"
+}

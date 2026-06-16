@@ -28,6 +28,7 @@ production/
 | ID | 状態 | 概要 | 採用日 |
 |---|---|---|---|
 | [oco-breakout-wf](strategies/oco-breakout-wf/strategy.md) | forward-testing | move検知 + OCO逆指値ブレイクアウト + walk-forward | 2026-06-12 |
+| [mtf-direction-v2](strategies/mtf-direction-v2/strategy.md) | forward-testing | lstm_focal(Stage1) + lstm_dir_v2 MTF24特徴量(Stage2) 成行5分エグジット | 2026-06-16 |
 
 状態の定義: `forward-testing`（デモ検証中）→ `live`（実弾運用）→ `retired`（引退。
 ディレクトリは消さず strategy.md に引退理由を記録）
