@@ -57,7 +57,7 @@ print(f"test: {m5['datetime'].iloc[A_test]} 〜 {m5['datetime'].iloc[A_test + le
 cfg = MODEL_CONFIGS["lstm_focal"]
 model = cfg.build_model()
 model.load_state_dict(
-    torch.load("/tmp/eval-models-v2/best_lstm_focal.pt", map_location="cpu", weights_only=True)
+    torch.load("/home/nomu/claude_code/pearless/production/strategies/oco-breakout-wf/checkpoints/lstm_focal_20260611.pt", map_location="cpu", weights_only=True)
 )
 model.eval()
 
@@ -71,8 +71,7 @@ def predict_move(X: np.ndarray) -> np.ndarray:
     return np.concatenate(out)
 
 
-p_move_test = np.load("/tmp/p_move_test.npy")
-p_move_test = p_move_test[:, 0] + p_move_test[:, 1]
+p_move_test = predict_move(np.load(f"{DATA}/X_test.npy"))
 p_move_val = predict_move(np.load(f"{DATA}/X_val.npy"))
 
 m1 = pd.read_csv(M1_CSV, header=None, names=COLS)
@@ -144,7 +143,7 @@ print("\n=== val でのグリッド評価（spread 0.2銭・スリッページ�
 print(f"{'t_move':>6s} {'δ銭':>5s} {'trades':>7s} {'amb':>6s} {'平均(銭)':>9s}")
 best = None
 for t_move in [0.85, 0.88, 0.90, 0.92, 0.93, 0.94]:
-    for delta in [0.010, 0.015, 0.020, 0.025, 0.030]:
+    for delta in [0.010, 0.015, 0.020, 0.025, 0.030, 0.045, 0.055, 0.065]:
         r = run(p_move_val, A_val, t_move, delta, SPREAD)
         if r["trades"] < 200:  # 統計的に薄い運用点は除外
             continue

@@ -62,6 +62,8 @@ def main() -> None:
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument("--scaler-path", type=Path, required=True)
     parser.add_argument("--model-name", default="lstm_focal")
+    parser.add_argument("--min-p-move", type=float, default=0.55,
+                        help="EAのMinPMoveと同じ値を指定するとシグナル判定をログに出せる")
     args = parser.parse_args()
 
     bars_path = args.mt4_files_dir / "pearless_bars.csv"
@@ -110,7 +112,8 @@ def main() -> None:
         tmp_path.write_text(f"{bar_time},{p_move:.4f}\n")
         tmp_path.replace(signal_path)
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        print(f"{bar_time}: p_move={p_move:.4f} ({elapsed_ms:.0f}ms)")
+        signal_str = ">>> SIGNAL" if p_move >= args.min_p_move else "    skip"
+        print(f"{bar_time}: p_move={p_move:.4f} ({elapsed_ms:.0f}ms) {signal_str}")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ input int    MagicNumber    = 20260611;
 input double Leverage       = 25.0;    // 使用レバレッジ（証拠金 × このレバレッジ分を取引）
 input double MaxRiskPct     = 100.0;   // 有効証拠金の何%まで使うか（100=フル、50=半分）
 input double MinPMove       = 0.55;    // p_move の発注閾値
-input double DeltaYen       = 0.015;   // 逆指値の距離（円。0.015 = 1.5銭）
+input double DeltaYen       = 0.055;   // 逆指値の距離（円。0.055 = 5.5銭、FXTFのstopLevel 5銭を考慮した下限）
 input int    SlippagePoints = 10;      // 許容スリッページ（point）
 input int    ExportBars     = 300;     // Pythonに渡す直近バー数
 input double MaxSpreadYen   = 0.005;   // この値より広いスプレッド時は発注しない（0.5銭）
@@ -44,6 +44,8 @@ int OnInit()
       Print("M5チャートで動かしてください");
       return INIT_FAILED;
    }
+   // 現在進行中の足をスキップ。次の足確定から処理開始する
+   g_lastBarTime = Time[0];
    return INIT_SUCCEEDED;
 }
 
@@ -159,22 +161,59 @@ double CalcLotSize()
 void PlaceOco(double p0)
 {
    double lotSize = CalcLotSize();
-   datetime expiry = Time[0] + PeriodSeconds();  // このバーの終わり
-   double buyTrig  = NormalizeDouble(p0 + DeltaYen, Digits);
-   double sellTrig = NormalizeDouble(p0 - DeltaYen, Digits);
+   datetime expiry = 0;  // 有効期限なし（GTC）でFXTFのexpiration制限を回避
 
-   int buyTicket = OrderSend(Symbol(), OP_BUYSTOP, lotSize, buyTrig,
+   // ブローカーの最小ストップ距離（point単位）を円換算し、DeltaYenの下限として使う
+   double stopLevelPoints = MarketInfo(Symbol(), MODE_STOPLEVEL);
+   double stopLevelYen = stopLevelPoints * Point;
+
+   // FXTFのstopLevel=50points(5銭)を上回る5.5銭を最低距離として使用
+   double minDist = MathMax(DeltaYen, stopLevelYen * 1.1);
+   minDist = MathMax(minDist, 0.055);  // 5.5銭を絶対下限
+   double buyTrig  = NormalizeDouble(Ask + minDist, Digits);
+   double sellTrig = NormalizeDouble(Bid - minDist, Digits);
+   Print("OCO距離診断: stopLevelPoints=", stopLevelPoints,
+         " stopLevelYen=", DoubleToString(stopLevelYen, 5),
+         " minDist=", DoubleToString(minDist, 5),
+         " Ask=", DoubleToString(Ask, Digits),
+         " Bid=", DoubleToString(Bid, Digits),
+         " buyTrig=", DoubleToString(buyTrig, Digits),
+         " sellTrig=", DoubleToString(sellTrig, Digits));
+
+   int buyTicket  = -1;
+   int sellTicket = -1;
+
+   if(buyTrig > Ask)
+   {
+      buyTicket = OrderSend(Symbol(), OP_BUYSTOP, lotSize, buyTrig,
+                            SlippagePoints, 0, 0,
+                            "pearless-oco", MagicNumber, expiry, clrBlue);
+      if(buyTicket < 0)
+         Print("BuyStop失敗: err=", GetLastError(),
+               " price=", DoubleToString(buyTrig, Digits),
+               " Ask=", DoubleToString(Ask, Digits));
+   }
+   else
+      Print("BuyStop スキップ: buyTrig=", DoubleToString(buyTrig, Digits),
+            " <= Ask=", DoubleToString(Ask, Digits));
+
+   if(sellTrig < Bid)
+   {
+      sellTicket = OrderSend(Symbol(), OP_SELLSTOP, lotSize, sellTrig,
                              SlippagePoints, 0, 0,
-                             "pearless-oco", MagicNumber, expiry, clrBlue);
-   if(buyTicket < 0) Print("BuyStop失敗: ", GetLastError());
-
-   int sellTicket = OrderSend(Symbol(), OP_SELLSTOP, lotSize, sellTrig,
-                              SlippagePoints, 0, 0,
-                              "pearless-oco", MagicNumber, expiry, clrRed);
-   if(sellTicket < 0) Print("SellStop失敗: ", GetLastError());
+                             "pearless-oco", MagicNumber, expiry, clrRed);
+      if(sellTicket < 0)
+         Print("SellStop失敗: err=", GetLastError(),
+               " price=", DoubleToString(sellTrig, Digits),
+               " Bid=", DoubleToString(Bid, Digits));
+   }
+   else
+      Print("SellStop スキップ: sellTrig=", DoubleToString(sellTrig, Digits),
+            " >= Bid=", DoubleToString(Bid, Digits));
 
    Print("OCO設置: lot=", DoubleToString(lotSize, 2),
          " equity=", DoubleToString(AccountEquity(), 0),
+         " minDist=", DoubleToString(minDist, Digits),
          " buy@", DoubleToString(buyTrig, Digits),
          " sell@", DoubleToString(sellTrig, Digits));
 
@@ -197,7 +236,7 @@ void ManageOco()
       {
          hasPosition = true;
          entryInfo = StringConcatenate(
-            (OrderType() == OP_BUY ? "BUY" : "SELL"), " ",
+            (OrderType() == OP_BUY ? "買い" : "売り"), " ",
             DoubleToString(OrderLots(), 2), "lot @",
             DoubleToString(OrderOpenPrice(), Digits));
       }
@@ -210,7 +249,7 @@ void ManageOco()
    // エントリー通知（OCO片側約定の検出時に1回だけ。g_ocoActiveの遷移で重複防止）
    if(EnablePush)
       SendNotification(StringConcatenate(
-         "[pearless] エントリー: ", Symbol(), " ", entryInfo,
+         "[pearless] エントリー確定 ", Symbol(), " ", entryInfo,
          " (", TimeToString(TimeCurrent(), TIME_MINUTES), ")"));
 }
 
