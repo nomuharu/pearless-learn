@@ -143,18 +143,9 @@ def main() -> None:
 
     print(f"監視開始: {bars_path}")
     print(f"閾値: t_move={args.t_move}, t_dir={args.t_dir}")
-    last_mtime = 0.0
+    last_bar_time = ""
 
     while True:
-        try:
-            mtime = bars_path.stat().st_mtime
-        except FileNotFoundError:
-            time.sleep(POLL_SEC)
-            continue
-        if mtime <= last_mtime:
-            time.sleep(POLL_SEC)
-            continue
-
         t0 = time.perf_counter()
         try:
             bars = pd.read_csv(
@@ -162,10 +153,20 @@ def main() -> None:
                 header=None,
                 names=["datetime", "open", "high", "low", "close", "volume"],
             )
+        except FileNotFoundError:
+            time.sleep(POLL_SEC)
+            continue
         except (PermissionError, OSError, pd.errors.ParserError):
             time.sleep(POLL_SEC)
             continue
-        last_mtime = mtime
+
+        # WSL の 9P 経由では mtime がキャッシュされ更新を検知できないため、
+        # 最終行のバー時刻の変化で新しい足の確定を検知する
+        current_bar_time = bars["datetime"].iloc[-1]
+        if current_bar_time == last_bar_time:
+            time.sleep(POLL_SEC)
+            continue
+        last_bar_time = current_bar_time
 
         try:
             p_move, direction, p_up = compute_signal(
@@ -173,7 +174,7 @@ def main() -> None:
                 scaler_m5, scaler_mtf,
                 args.t_move, args.t_dir,
             )
-        except ValueError as e:
+        except Exception as e:
             print(f"推論スキップ: {e}")
             continue
 
