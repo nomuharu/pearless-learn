@@ -143,13 +143,19 @@ bool ReadSignal(datetime barTime, string &direction, double &pMove, double &pUp)
 //+------------------------------------------------------------------+
 double CalcLotSize()
 {
-   double equity   = AccountEquity();
-   double tradable = equity * (MaxRiskPct / 100.0) * Leverage;
-   double lotRaw   = tradable / 100000.0;
-   double lotStep  = MarketInfo(Symbol(), MODE_LOTSTEP);
-   double lotMin   = MarketInfo(Symbol(), MODE_MINLOT);
-   double lotMax   = MarketInfo(Symbol(), MODE_MAXLOT);
-   double lot      = MathFloor(lotRaw / lotStep) * lotStep;
+   double equity        = AccountEquity();
+   double lotStep       = MarketInfo(Symbol(), MODE_LOTSTEP);
+   double lotMin        = MarketInfo(Symbol(), MODE_MINLOT);
+   double lotMax        = MarketInfo(Symbol(), MODE_MAXLOT);
+   // MODE_MARGINREQUIRED: ブローカー設定レバレッジ込みの1ロット必要証拠金
+   double marginPer1Lot = MarketInfo(Symbol(), MODE_MARGINREQUIRED);
+   if(marginPer1Lot <= 0) marginPer1Lot = Ask * 100000.0 / 25.0;  // フォールバック（25倍）
+   // 有効証拠金 × MaxRiskPct% の範囲で Leverage 倍のポジションを持てるロット数
+   // ただしブローカー証拠金要件を超えないように上限を掛ける
+   double lotByLeverage = equity * (MaxRiskPct / 100.0) * Leverage / (Ask * 100000.0);
+   double lotByMargin   = equity * (MaxRiskPct / 100.0) / marginPer1Lot;
+   double lotRaw        = MathMin(lotByLeverage, lotByMargin);
+   double lot           = MathFloor(lotRaw / lotStep) * lotStep;
    lot = MathMax(lotMin, MathMin(lot, lotMax));
    return NormalizeDouble(lot, 2);
 }

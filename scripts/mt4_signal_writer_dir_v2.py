@@ -45,7 +45,7 @@ from pipeline_mtf import feature_engineering_mtf
 WINDOW = 60
 POLL_SEC = 0.2
 
-T_MOVE_DEFAULT = 0.88
+T_MOVE_DEFAULT = 0.85
 T_DIR_DEFAULT = 0.60
 
 
@@ -143,7 +143,20 @@ def main() -> None:
 
     print(f"監視開始: {bars_path}")
     print(f"閾値: t_move={args.t_move}, t_dir={args.t_dir}")
+
+    # 起動時点のバー時刻を記録し、次の足が確定するまで推論しない
     last_bar_time = ""
+    while last_bar_time == "":
+        try:
+            _init_bars = pd.read_csv(
+                bars_path,
+                header=None,
+                names=["datetime", "open", "high", "low", "close", "volume"],
+            )
+            last_bar_time = _init_bars["datetime"].iloc[-1]
+            print(f"起動完了: 現在の足={last_bar_time}、次の足から推論開始")
+        except Exception:
+            time.sleep(POLL_SEC)
 
     while True:
         t0 = time.perf_counter()
@@ -176,6 +189,7 @@ def main() -> None:
             )
         except Exception as e:
             print(f"推論スキップ: {e}")
+            last_bar_time = current_bar_time  # エラーでも時刻を進めて無限ループ防止
             continue
 
         bar_time = bars["datetime"].iloc[-1]
